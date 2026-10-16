@@ -7,6 +7,8 @@ Editor de mapas mentais em Python + PySide6 (Qt), inspirado no XMind.
 - Faz **edição completa pelo teclado** e **desfazer ilimitado até 100 níveis**.
 - Exporta **PNG transparente, SVG e PDF vetoriais**.
 
+<img width="1392" height="960" alt="screenshot" src="https://github.com/user-attachments/assets/bb83b4e6-fb54-48e1-943c-952eda8b41cb" />
+
 ---
 
 ## 1. Instalar e rodar (macOS + VS Code)
