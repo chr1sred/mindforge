@@ -1,0 +1,21 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "MindForge",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/run_mindforge.py",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "MindForge: abrir arquivo",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/run_mindforge.py",
+      "args": ["${file}"],
+      "console": "integratedTerminal"
+    }
+  ]
+}
