@@ -3,11 +3,9 @@
 Editor de mapas mentais em Python + PySide6 (Qt), inspirado no XMind.
 
 - Roda no **macOS, Windows e Linux**.
-- Funciona com **7 esqueletos** e **5 temas**.
+- Funciona com **7 esqueletos**, **5 temas** e **7 estilos de ramo**.
 - Faz **edição completa pelo teclado** e **desfazer ilimitado até 100 níveis**.
 - Exporta **PNG transparente, SVG e PDF vetoriais**.
-
-<img width="1392" height="960" alt="screenshot" src="https://github.com/user-attachments/assets/bb83b4e6-fb54-48e1-943c-952eda8b41cb" />
 
 ---
 
@@ -79,14 +77,27 @@ No macOS, `Ctrl` = `⌘`. A lista completa também está em **Ajuda → Atalhos 
 
 | Aba | O que tem |
 |---|---|
-| **Estilo** | Forma do tópico, cores (preenchimento, borda, linha do ramo), texto (tamanho, negrito, itálico, cor), marcadores e nota |
-| **Mapa** | Esqueleto (galeria com miniaturas), tema de cores, cor de fundo, tipo de letra global, largura da linha de ramo, ramo colorido e compactar mapa |
+| **Estilo** | Seções recolhíveis: **Forma** (9 formas, preenchimento, largura fixa), **Limite** (estilo, espessura e cor da borda), **Texto** (fonte, peso, tamanho, cor, negrito, itálico, riscado, maiúsculas, alinhamento), **Ramo** (estilo, linha, ponta, espessura, cor), Marcadores e Nota. Botões **Aplicar ao nível** e **Repor estilo** |
+| **Mapa** | Esqueleto (galeria com miniaturas), tema de cores, cor de fundo, tipo de letra global, estilo de ramo padrão, largura da linha, ramo colorido, compactar mapa e (na espinha de peixe) alinhar tópicos principais |
+
+**Ramos.** As opções de Ramo de um tópico valem para as linhas que saem dele para os subtópicos. Marque **Aplicar também aos descendentes** para estender a escolha ao ramo inteiro.
+
+| Estilo de ramo | Desenho |
+|---|---|
+| Colchete curvo (⊂) | Padrão do mapa lógico e da árvore |
+| Colchete reto (⊏) | Padrão do organograma |
+| Chave ({) | Padrão do mapa mental e das costelas da espinha de peixe |
+| Leque reto, Arco, Diagonal, Leque curvo | Variações disponíveis em qualquer esqueleto horizontal ou vertical |
+
+**Seleção múltipla.** Com vários tópicos selecionados, valores diferentes aparecem como "—" e qualquer alteração vale para todos.
+
+**Fonte.** O app traz a fonte **Inter** embutida (licença SIL OFL, em `assets/fonts/OFL.txt`), então o mapa fica igual no Mac e no Windows. Se um mapa usar uma fonte que não existe no computador, o painel avisa e o app usa uma substituta.
 
 A barra superior traz Tópico (com menu de opções), Subtópico, Relação, Marcador, Nota, Desfazer/Refazer, Buscar, Exportar, Tela cheia e Painel. O zoom fica no canto inferior direito.
 
 A interface acompanha o modo claro/escuro do sistema. Para forçar um modo, defina a variável `MINDFORGE_APARENCIA=claro` ou `MINDFORGE_APARENCIA=escuro`.
 
-A **espinha de peixe** cresce da esquerda para a direita: o efeito fica à esquerda e as causas ficam em duas fileiras alinhadas.
+A **espinha de peixe** cresce da esquerda para a direita. As espinhas de cima e de baixo formam pares que saem do mesmo ponto da coluna, cada uma com o comprimento do seu conteúdo, e nenhum texto cruza uma linha.
 
 ## 5. Exportação
 
@@ -107,13 +118,13 @@ A **espinha de peixe** cresce da esquerda para a direita: o efeito fica à esque
 ```
 mindforge/
 ├── model/      Árvore de tópicos e operações (Python puro, sem Qt)
-├── layouts/    Um algoritmo por esqueleto (Python puro, testável)
+├── layouts/    Um algoritmo por esqueleto (Python puro, testável); gera "grupos de ramos"
 ├── document.py Undo/redo por snapshot (100 níveis)
 ├── storage/    .mfmap (JSON versionado, gravação atômica) + recuperação
 ├── themes.py   Temas e resolução de estilo
 ├── templates.py Modelos iniciais
 ├── export/     PNG / SVG / PDF
-└── view/       Cena, itens gráficos, canvas (atalhos), janela, painel, diálogos
+└── view/       Cena, itens gráficos, ramos (branches.py), canvas (atalhos), janela, painel, diálogos
 ```
 
 **Decisões de robustez:**
@@ -124,6 +135,7 @@ mindforge/
 - **Gravação atômica.** O arquivo é gravado num temporário, recebe `fsync` e só então substitui o original.
 - **Recuperação automática.** O autosave a cada 60 s vai para uma pasta de recuperação. Se o app fechar inesperadamente, os mapas são oferecidos na próxima abertura.
 - **Fontes em pixels.** Isso garante o mesmo tamanho na tela, no PNG, no SVG e no PDF, independentemente do DPI de cada sistema.
+- **Tronco único.** Cada pai desenha as linhas para os filhos como um grupo: o tronco compartilhado é traçado uma vez só, sem sobreposições que deixem a linha irregular.
 - **Desenho em código.** Ícones e marcadores são desenhados com `QPainter` e saem vetoriais nas exportações.
 
 **Formato do arquivo:** JSON legível, com `schema_version` para migrações futuras.
@@ -134,7 +146,7 @@ mindforge/
 QT_QPA_PLATFORM=offscreen python -m pytest
 ```
 
-Os 87 testes cobrem:
+Os 156 testes cobrem:
 
 - **Modelo:** operações e serialização.
 - **Desfazer/refazer:** todas as operações e o limite de 100 níveis.
@@ -142,8 +154,9 @@ Os 87 testes cobrem:
 - **Arquivos:** gravação atômica, arquivos corrompidos e recuperação.
 - **Exportação:** transparência real do PNG, SVG válido, PDF com fontes embutidas e exportação de ramo.
 - **Atalhos:** os de teclado, incluindo os conflitos durante a edição.
+- **Ramos e estilo (1.2):** os 7 estilos em todas as direções, pontas, padrões de linha, tronco único, espinha de peixe sem nenhuma linha cruzando texto, formas, riscado no SVG, compatibilidade com mapas antigos e o painel.
 
-## 8. Fora do escopo da 1.0
+## 8. Próximas versões
 
 Ficaram para versões futuras:
 
@@ -151,3 +164,6 @@ Ficaram para versões futuras:
 - Exportar e importar Markdown e OPML.
 - Imagens dentro dos tópicos.
 - Modo apresentação.
+- Estrutura por tópico (cada ramo com esqueleto próprio).
+- Linhas "à mão livre" e ramos afunilados.
+- Estilos salvos (presets próprios).

@@ -15,16 +15,44 @@ from PySide6.QtGui import (
     QBrush, QColor, QFont, QFontDatabase, QFontMetricsF, QPainter, QPainterPath, QPen, QPolygonF,
 )
 
-from mindforge.themes import TopicStyle
+from mindforge.themes import UNDERLINE_SHAPES, TopicStyle, underline_width
 
 # ------------------------------------------------------------------- fontes
-PREFERRED_FAMILIES = ("Helvetica Neue", "Segoe UI", "Inter", "Noto Sans", "Ubuntu",
+EMBEDDED_FAMILY = "Inter"
+PREFERRED_FAMILIES = (EMBEDDED_FAMILY, "Helvetica Neue", "Segoe UI", "Noto Sans", "Ubuntu",
                       "DejaVu Sans", "Arial")
+_FONTS_LOADED = [False]
+
+
+def assets_dir() -> str:
+    """Pasta assets/ (funciona no código-fonte e no app gerado pelo PyInstaller)."""
+    import os
+    import sys
+    base = getattr(sys, "_MEIPASS", None)
+    if base:
+        return os.path.join(base, "assets")
+    return os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                        "assets")
+
+
+def ensure_fonts() -> None:
+    """Registra a fonte Inter embutida (uma vez). Exige um QGuiApplication ativo."""
+    if _FONTS_LOADED[0]:
+        return
+    import glob
+    import os
+    from PySide6.QtGui import QGuiApplication
+    if QGuiApplication.instance() is None:
+        return
+    _FONTS_LOADED[0] = True
+    for f in sorted(glob.glob(os.path.join(assets_dir(), "fonts", "*.otf"))):
+        QFontDatabase.addApplicationFont(f)
 
 
 @lru_cache(maxsize=1)
 def default_family() -> str:
-    """Fonte com nome portável (importante para SVG abrir igual em outro computador)."""
+    """Fonte padrão: Inter (embutida); se faltar, uma fonte comum do sistema."""
+    ensure_fonts()
     available = set(QFontDatabase.families())
     for fam in PREFERRED_FAMILIES:
         if fam in available:
@@ -32,15 +60,42 @@ def default_family() -> str:
     return QFontDatabase.systemFont(QFontDatabase.SystemFont.GeneralFont).family()
 
 
+@lru_cache(maxsize=512)
+def font_available(family: str) -> bool:
+    ensure_fonts()
+    return family in set(QFontDatabase.families())
+
+
+def _weight_enum(w: int) -> QFont.Weight:
+    w = int(round(max(100, min(900, w)) / 100.0) * 100)
+    for e in QFont.Weight:
+        if int(e.value) == w:
+            return e
+    return QFont.Weight.Normal
+
+
 def make_font(style: TopicStyle, family: Optional[str] = None) -> QFont:
-    f = QFont(family or default_family())
+    fam = style.family or family or default_family()
+    f = QFont(fam)
+    if fam != default_family():
+        f.setFamilies([fam, default_family()])        # substituta se a fonte não existir
     # Tamanho em PIXELS (não pontos): idêntico na tela, no PNG, no SVG e no PDF,
     # independentemente do DPI do sistema (72 no macOS, 96 no Windows).
     f.setPixelSize(max(6, round(style.font_size)))
-    f.setBold(style.bold)
+    f.setWeight(_weight_enum(style.weight))
     f.setItalic(style.italic)
     f.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
     return f
+
+
+def apply_case(text: str, case: str) -> str:
+    if case == "upper":
+        return text.upper()
+    if case == "lower":
+        return text.lower()
+    if case == "title":
+        return "\n".join(" ".join(w[:1].upper() + w[1:] for w in ln.split(" ")) for ln in text.split("\n"))
+    return text
 
 
 # ----------------------------------------------------------------- medidas
@@ -87,9 +142,16 @@ class TopicVisual:
     icon: float
     markers: list[str] = field(default_factory=list)
     has_note: bool = False
-    align_left: bool = False
+    align: str = "center"
     side: str = "right"
     collapsed_count: int = 0
+    branch: str = "#8A8F98"          # cor do ramo a que o tópico pertence
+    level: str = "sub"
+    inner_x: float = 10.0            # recuo horizontal real (padding + extras da forma)
+
+    @property
+    def align_left(self) -> bool:
+        return self.align == "left"
 
 
 MARKER_GAP = 4.0
@@ -97,44 +159,63 @@ NOTE_W = 11.0
 
 
 @lru_cache(maxsize=20000)
-def _measure(text: str, family: str, px: float, bold: bool, italic: bool,
-             max_w: float) -> tuple[tuple[str, ...], float, float, float, float]:
-    st = TopicStyle(font_size=px, bold=bold, italic=italic)
+def _measure(text: str, family: str, px: float, weight: int, italic: bool,
+             max_w: float) -> tuple[tuple[str, ...], tuple[float, ...], float, float, float, float]:
+    st = TopicStyle(font_size=px, weight=weight, italic=italic, family=family)
     fm = QFontMetricsF(make_font(st, family))
     lines = wrap_text(fm, text, max_w)
-    tw = max([fm.horizontalAdvance(ln) for ln in lines] + [0.0])
+    widths = tuple(fm.horizontalAdvance(ln) for ln in lines)
+    tw = max(widths + (0.0,))
     lh = fm.lineSpacing()
-    return tuple(lines), tw, lh * len(lines), lh, fm.ascent()
+    return tuple(lines), widths, tw, lh * len(lines), lh, fm.ascent()
 
 
 def build_visual(text: str, style: TopicStyle, markers: list[str], has_note: bool,
                  family: Optional[str] = None) -> TopicVisual:
-    fam = family or default_family()
-    lines, tw, th, lh, asc = _measure(text, fam, style.font_size, style.bold, style.italic,
-                                      style.max_text_width)
-    tw = max(tw, 10.0)
+    fam = style.family or family or default_family()
+    shown = apply_case(text, style.text_case)
     icon = max(16.0, round(style.font_size * 1.15))
     mk_w = len(markers) * (icon + MARKER_GAP) if markers else 0.0
     note_w = (NOTE_W + 7) if has_note else 0.0
-    content_w = mk_w + tw + note_w
-    content_h = max(th, icon if (markers or has_note) else 0.0)
     pad_x, pad_y = style.pad_x, style.pad_y
     shape = style.shape
+    max_w = style.max_text_width
+    if style.fixed_width:
+        max_w = max(20.0, style.fixed_width - 2 * pad_x - mk_w - note_w)
+    lines, _widths, tw, th, lh, asc = _measure(shown, fam, style.font_size, style.weight,
+                                               style.italic, max_w)
+    tw = max(tw, 10.0)
+    if style.fixed_width:
+        tw = max(tw, max_w)
+    content_w = mk_w + tw + note_w
+    content_h = max(th, icon if (markers or has_note) else 0.0)
     if shape == "capsula":
         pad_x += (content_h + 2 * pad_y) / 4
+    elif shape == "hexagono":
+        pad_x += (content_h + 2 * pad_y) / 2.6
     w = content_w + 2 * pad_x
     h = content_h + 2 * pad_y
     if shape == "elipse":
         w *= 1.22
         h *= 1.28
-    w, h = max(w, 24.0), max(h, 18.0)
-    # ponto de conexão no CENTRO do traço do sublinhado: a linha do ramo
-    # emenda sem "degrau" (era a causa do aspecto serrilhado nas junções)
-    ay = h - max(1.0, style.border_width or style.line_width) / 2 if shape == "sublinhado" else h / 2
+    elif shape == "losango":
+        w = content_w * 1.7 + 2 * pad_x
+        h = content_h * 2.2 + 2 * pad_y
+    elif shape == "sublinhado_duplo":
+        h += underline_width(style) * 2
+    if style.fixed_width:
+        w = max(w, style.fixed_width)
+    # dimensões inteiras: linhas e caixas ficam alinhadas à grade de pixels
+    w, h = float(math.ceil(max(w, 24.0))), float(math.ceil(max(h, 18.0)))
+    if shape in UNDERLINE_SHAPES:
+        # ponto de conexão no CENTRO do traço do sublinhado: a linha do ramo continua o traço
+        ay = h - underline_width(style) / 2
+    else:
+        ay = h / 2
     return TopicVisual(style=style, font=make_font(style, fam), lines=list(lines), line_h=lh,
                        ascent=asc, text_w=tw, text_h=th, w=w, h=h, ay=ay, content_w=content_w,
                        content_h=content_h, icon=icon, markers=list(markers), has_note=has_note,
-                       align_left=shape in ("sublinhado", "nenhuma"))
+                       align=style.resolved_align, inner_x=pad_x)
 
 
 # ------------------------------------------------------------------ formas
@@ -143,44 +224,83 @@ def shape_path(shape: str, rect: QRectF) -> Optional[QPainterPath]:
     if shape == "retangulo":
         p.addRect(rect)
     elif shape == "arredondado":
-        r = min(8.0, rect.height() / 3)
+        r = min(7.0, rect.height() / 3)
         p.addRoundedRect(rect, r, r)
     elif shape == "capsula":
         r = rect.height() / 2
         p.addRoundedRect(rect, r, r)
     elif shape == "elipse":
         p.addEllipse(rect)
+    elif shape == "losango":
+        c = rect.center()
+        p.addPolygon(QPolygonF([QPointF(c.x(), rect.top()), QPointF(rect.right(), c.y()),
+                                QPointF(c.x(), rect.bottom()), QPointF(rect.left(), c.y())]))
+        p.closeSubpath()
+    elif shape == "hexagono":
+        k = min(rect.height() / 2, rect.width() / 4)
+        c = rect.center()
+        p.addPolygon(QPolygonF([QPointF(rect.left() + k, rect.top()), QPointF(rect.right() - k, rect.top()),
+                                QPointF(rect.right(), c.y()), QPointF(rect.right() - k, rect.bottom()),
+                                QPointF(rect.left() + k, rect.bottom()), QPointF(rect.left(), c.y())]))
+        p.closeSubpath()
     else:
         return None
     return p
+
+
+def pattern_pen(color: QColor, width: float, pattern: str, cap=Qt.PenCapStyle.RoundCap) -> QPen:
+    pen = QPen(color, width, Qt.PenStyle.SolidLine, cap, Qt.PenJoinStyle.RoundJoin)
+    if pattern == "tracejado":
+        pen.setDashPattern([4.0, 2.6])
+        pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+    elif pattern == "pontilhado":
+        pen.setDashPattern([0.01, 2.2])
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    return pen
+
+
+def _content_origin(vis: TopicVisual) -> tuple[float, float]:
+    """Canto superior esquerdo do bloco de conteúdo (marcadores + texto + nota)."""
+    st = vis.style
+    if st.shape in ("elipse", "losango") or vis.align == "center":
+        cx = (vis.w - vis.content_w) / 2           # o bloco fica centralizado; as linhas se alinham dentro dele
+    elif vis.align == "left":
+        cx = vis.inner_x
+    else:
+        cx = vis.w - vis.inner_x - vis.content_w
+    if st.shape in UNDERLINE_SHAPES or st.shape == "nenhuma":
+        cy = st.pad_y
+    else:
+        cy = (vis.h - vis.content_h) / 2
+    return cx, cy
 
 
 def paint_topic(p: QPainter, vis: TopicVisual, text_as_paths: bool = False,
                 hide_text: bool = False) -> None:
     st = vis.style
     rect = QRectF(0, 0, vis.w, vis.h)
-    path = shape_path(st.shape, rect.adjusted(st.border_width / 2, st.border_width / 2,
-                                              -st.border_width / 2, -st.border_width / 2))
+    bw = st.border_width
+    path = shape_path(st.shape, rect.adjusted(bw / 2, bw / 2, -bw / 2, -bw / 2))
     if path is not None:
         p.setBrush(QBrush(QColor(st.fill)) if st.fill else Qt.BrushStyle.NoBrush)
-        if st.border and st.border_width > 0:
-            p.setPen(QPen(QColor(st.border), st.border_width))
+        if st.border and bw > 0 and st.border_style != "nenhum":
+            p.setPen(pattern_pen(QColor(st.border), bw, st.border_style, Qt.PenCapStyle.SquareCap))
         else:
             p.setPen(Qt.PenStyle.NoPen)
         p.drawPath(path)
-    elif st.shape == "sublinhado":
-        bw = max(1.0, st.border_width or st.line_width)
-        color = QColor(st.border or st.line_color)
-        p.setPen(QPen(color, bw, Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap))
-        y = vis.h - bw / 2
+    elif st.shape in UNDERLINE_SHAPES and st.border_style != "nenhum":
+        uw = underline_width(st)
+        pen = pattern_pen(QColor(st.border or st.line_color), uw, st.border_style, Qt.PenCapStyle.FlatCap)
+        p.setPen(pen)
+        y = vis.h - uw / 2
         p.drawLine(QPointF(0, y), QPointF(vis.w, y))
+        if st.shape == "sublinhado_duplo":
+            y2 = y - uw * 2
+            p.drawLine(QPointF(0, y2), QPointF(vis.w, y2))
+    elif st.fill:
+        p.fillRect(rect, QColor(st.fill))
 
-    # conteúdo centralizado
-    cx = (vis.w - vis.content_w) / 2
-    cy = (vis.h - vis.content_h) / 2
-    if vis.align_left:
-        cx = st.pad_x
-        cy = st.pad_y
+    cx, cy = _content_origin(vis)
     x = cx
     for mk in vis.markers:
         paint_marker(p, mk, QRectF(x, cy + (vis.content_h - vis.icon) / 2, vis.icon, vis.icon))
@@ -192,7 +312,12 @@ def paint_topic(p: QPainter, vis: TopicVisual, text_as_paths: bool = False,
         fm = QFontMetricsF(vis.font)
         for i, line in enumerate(vis.lines):
             lw = fm.horizontalAdvance(line)
-            lx = tx if vis.align_left else tx + (vis.text_w - lw) / 2
+            if vis.align == "left":
+                lx = tx
+            elif vis.align == "right":
+                lx = tx + vis.text_w - lw
+            else:
+                lx = tx + (vis.text_w - lw) / 2
             base = QPointF(lx, ty + i * vis.line_h + vis.ascent)
             if text_as_paths:
                 tp = QPainterPath()
@@ -202,6 +327,11 @@ def paint_topic(p: QPainter, vis: TopicVisual, text_as_paths: bool = False,
                 p.setFont(vis.font)
                 p.setPen(color)
                 p.drawText(base, line)
+            if st.strike and line:
+                # riscado desenhado como geometria (o SVG do Qt não exporta o riscado da fonte)
+                t = max(1.0, fm.lineWidth())
+                sy = base.y() - fm.strikeOutPos() - t / 2
+                p.fillRect(QRectF(lx, sy, lw, t), color)
     if vis.has_note:
         nx = tx + vis.text_w + 7
         ny = cy + (vis.content_h - 13) / 2
@@ -210,10 +340,7 @@ def paint_topic(p: QPainter, vis: TopicVisual, text_as_paths: bool = False,
 
 def text_rect(vis: TopicVisual) -> QRectF:
     """Área do texto dentro da caixa (usada para posicionar o editor)."""
-    cx = (vis.w - vis.content_w) / 2
-    cy = (vis.h - vis.content_h) / 2
-    if vis.align_left:
-        cx, cy = vis.style.pad_x, vis.style.pad_y
+    cx, cy = _content_origin(vis)
     mk_w = len(vis.markers) * (vis.icon + MARKER_GAP)
     return QRectF(cx + mk_w, cy + (vis.content_h - vis.text_h) / 2, vis.text_w, vis.text_h)
 

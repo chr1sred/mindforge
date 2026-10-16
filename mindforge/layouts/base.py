@@ -37,15 +37,37 @@ class Connector:
 
 
 @dataclass
+class BranchGroup:
+    """Todas as linhas de um pai para os seus filhos (desenhadas juntas, tronco único).
+
+    ``direction`` é o sentido em que os filhos estão (right | left | down | up);
+    ``style`` é o estilo padrão do esqueleto ("indent" = lista indentada, fixo).
+    """
+    key: str
+    parent: str
+    direction: str
+    origin: Point
+    kids: list[tuple[str, Point]]
+    style: str = "colchete_curvo"
+
+    def translate(self, dx: float, dy: float) -> None:
+        self.origin = (self.origin[0] + dx, self.origin[1] + dy)
+        self.kids = [(k, (x + dx, y + dy)) for k, (x, y) in self.kids]
+
+
+@dataclass
 class LayoutResult:
     pos: dict[str, Point] = field(default_factory=dict)
     connectors: list[Connector] = field(default_factory=list)
     sides: dict[str, str] = field(default_factory=dict)   # right | left | down | up
+    groups: list[BranchGroup] = field(default_factory=list)
 
     def translate(self, dx: float, dy: float) -> "LayoutResult":
         self.pos = {k: (x + dx, y + dy) for k, (x, y) in self.pos.items()}
         for c in self.connectors:
             c.points = [(x + dx, y + dy) for x, y in c.points]
+        for g in self.groups:
+            g.translate(dx, dy)
         return self
 
     def mirror_x(self, metrics: dict[str, "Metric"]) -> "LayoutResult":
@@ -54,6 +76,10 @@ class LayoutResult:
         self.pos = {k: (-x - metrics[k].w, y) for k, (x, y) in self.pos.items()}
         for c in self.connectors:
             c.points = [(-x, y) for x, y in c.points]
+        for g in self.groups:
+            g.origin = (-g.origin[0], g.origin[1])
+            g.kids = [(k, (-x, y)) for k, (x, y) in g.kids]
+            g.direction = flip.get(g.direction, g.direction)
         self.sides = {k: flip.get(v, v) for k, v in self.sides.items()}
         return self
 
@@ -61,6 +87,7 @@ class LayoutResult:
         self.pos.update(other.pos)
         self.connectors.extend(other.connectors)
         self.sides.update(other.sides)
+        self.groups.extend(other.groups)
 
     def bbox(self, metrics: dict[str, Metric]) -> tuple[float, float, float, float]:
         xs0, ys0, xs1, ys1 = [], [], [], []
@@ -70,12 +97,15 @@ class LayoutResult:
             ys0.append(y)
             xs1.append(x + m.w)
             ys1.append(y + m.h)
-        for c in self.connectors:
-            for x, y in c.points:
-                xs0.append(x)
-                xs1.append(x)
-                ys0.append(y)
-                ys1.append(y)
+        pts = [p for c in self.connectors for p in c.points]
+        for g in self.groups:
+            pts.append(g.origin)
+            pts.extend(p for _, p in g.kids)
+        for x, y in pts:
+            xs0.append(x)
+            xs1.append(x)
+            ys0.append(y)
+            ys1.append(y)
         if not xs0:
             return (0.0, 0.0, 0.0, 0.0)
         return (min(xs0), min(ys0), max(xs1), max(ys1))
@@ -98,6 +128,21 @@ def sp(v: float) -> float:
     return v * _SPACING[0]
 
 
+# Opções do mapa que alguns esqueletos usam (definidas pela cena antes de calcular)
+OPTIONS: dict = {"fishbone_align": False}
+
+
+@contextmanager
+def layout_options(**kw) -> Iterator[None]:
+    old = dict(OPTIONS)
+    OPTIONS.update(kw)
+    try:
+        yield
+    finally:
+        OPTIONS.clear()
+        OPTIONS.update(old)
+
+
 @contextmanager
 def spacing(factor: float) -> Iterator[None]:
     old = _SPACING[0]
@@ -116,7 +161,7 @@ def vgap_for(depth: int) -> float:
 # Subárvore horizontal (mapa lógico para a direita/esquerda)
 # ---------------------------------------------------------------------------
 def horizontal_subtree(t: Topic, M: dict[str, Metric], direction: str = "right",
-                       kind: str = "elbow_h", base_depth: int = 1,
+                       style: str = "colchete_curvo", base_depth: int = 1,
                        hgap: Optional[float] = None) -> LayoutResult:
     """Layout de uma subárvore crescendo para a direita ou esquerda.
 
@@ -164,14 +209,15 @@ def horizontal_subtree(t: Topic, M: dict[str, Metric], direction: str = "right",
         cy = ytop + (bh - kh) / 2
         child_ax = (nx + m.w + hgap) if sign > 0 else (nx - hgap)
         p0 = ((nx + m.w) if sign > 0 else nx, ny + m.ay)
+        group = BranchGroup(f"g:{node.id}", node.id, direction, p0, [], style)
         for c in kids:
             cm = M[c.id]
             ch = heights[c.id]
             cny = cy + ch / 2 - cm.h / 2
-            p1 = (child_ax, cny + cm.ay)
-            res.connectors.append(Connector(c.id, c.id, kind, [p0, p1]))
+            group.kids.append((c.id, (child_ax, cny + cm.ay)))
             work.append((c, child_ax, cy, d + 1))
             cy += ch + gap
+        res.groups.append(group)
     x0, y0 = res.pos[t.id]
     return res.translate(-x0, -y0)
 
@@ -180,7 +226,7 @@ def horizontal_subtree(t: Topic, M: dict[str, Metric], direction: str = "right",
 # Subárvore vertical (organograma)
 # ---------------------------------------------------------------------------
 def vertical_subtree(t: Topic, M: dict[str, Metric], direction: str = "down",
-                     hgap: Optional[float] = None, vgap: Optional[float] = None) -> LayoutResult:
+                     style: str = "colchete_reto", hgap: Optional[float] = None, vgap: Optional[float] = None) -> LayoutResult:
     hgap = sp(22.0) if hgap is None else hgap
     vgap = sp(46.0) if vgap is None else vgap
     widths: dict[str, float] = {}
@@ -216,14 +262,15 @@ def vertical_subtree(t: Topic, M: dict[str, Metric], direction: str = "down",
         cx = left + (bw - kw) / 2
         child_ay = (ny + m.h + vgap) if sign > 0 else (ny - vgap)
         p0 = (nx + m.w / 2, (ny + m.h) if sign > 0 else ny)
+        group = BranchGroup(f"g:{n.id}", n.id, direction, p0, [], style)
         for c in kids:
             cm = M[c.id]
             cw = widths[c.id]
             cnx = cx + cw / 2 - cm.w / 2
-            p1 = (cnx + cm.w / 2, child_ay)
-            res.connectors.append(Connector(c.id, c.id, "elbow_v", [p0, p1]))
+            group.kids.append((c.id, (cnx + cm.w / 2, child_ay)))
             work.append((c, cx, child_ay))
             cx += cw + hgap
+        res.groups.append(group)
     x0, y0 = res.pos[t.id]
     return res.translate(-x0, -y0)
 
@@ -277,11 +324,11 @@ def _connect_indented(t: Topic, M: dict[str, Metric], res: LayoutResult,
         px, py = res.pos[n.id]
         pm = M[n.id]
         tx = px + min(indent / 2, pm.w / 2)
+        group = BranchGroup(f"g:{n.id}", n.id, "down", (tx, py + pm.h), [], "indent")
         for c in kids:
             cx, cy = res.pos[c.id]
-            cm = M[c.id]
-            res.connectors.append(Connector(c.id, c.id, "poly",
-                                            [(tx, py + pm.h), (tx, cy + cm.ay), (cx, cy + cm.ay)]))
+            group.kids.append((c.id, (cx, cy + M[c.id].ay)))
+        res.groups.append(group)
         stack.extend(kids)
 
 
@@ -289,6 +336,9 @@ class Layout:
     key = ""
     label = ""
     floating_direction = "right"
+    default_branch = "colchete_curvo"
+    # Ajustes de estilo por nível que o esqueleto sugere (aplicados antes das escolhas do usuário)
+    hints: dict = {}
 
     def compute(self, root: Topic, M: dict[str, Metric]) -> LayoutResult:
         raise NotImplementedError
@@ -298,7 +348,7 @@ class Layout:
         if self.floating_direction == "down":
             res = vertical_subtree(top, M)
         else:
-            res = horizontal_subtree(top, M, "right", "elbow_h", base_depth=2)
+            res = horizontal_subtree(top, M, "right", self.default_branch, base_depth=2)
         px, py = top.pos or (0.0, 0.0)
         return res.translate(px, py)
 

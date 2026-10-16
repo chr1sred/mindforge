@@ -250,3 +250,145 @@ class CardButton(QToolButton):
         self.setIconSize(QSize(88, 52))
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+
+# --------------------------------------------------------- seções recolhíveis
+class CollapsibleSection(QWidget):
+    """Seção do painel com título clicável (▾/▸) que recolhe o conteúdo; lembra o estado."""
+
+    def __init__(self, title: str, key: str, parent=None):
+        super().__init__(parent)
+        from PySide6.QtCore import QSettings
+        self._settings_key = f"painel/secao/{key}"
+        self._open = QSettings().value(self._settings_key, True, type=bool)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(6)
+        head = QHBoxLayout()
+        head.setSpacing(6)
+        self.header = QToolButton()
+        self.header.setObjectName("SectionHeader")
+        self.header.setText(title)
+        self.header.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.header.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.header.clicked.connect(self.toggle)
+        head.addWidget(self.header)
+        head.addStretch(1)
+        self.extra = QHBoxLayout()
+        self.extra.setSpacing(4)
+        head.addLayout(self.extra)
+        lay.addLayout(head)
+        self.body = QWidget()
+        self.body_layout = QVBoxLayout(self.body)
+        self.body_layout.setContentsMargins(0, 0, 0, 4)
+        self.body_layout.setSpacing(8)
+        lay.addWidget(self.body)
+        self._apply()
+
+    def toggle(self) -> None:
+        from PySide6.QtCore import QSettings
+        self._open = not self._open
+        QSettings().setValue(self._settings_key, self._open)
+        self._apply()
+
+    def _apply(self) -> None:
+        self.body.setVisible(self._open)
+        from mindforge.view.icons import icon
+        self.header.setIcon(icon("chevron" if self._open else "chevron_right", style.chrome().muted, 12))
+
+    def add(self, item) -> None:
+        if isinstance(item, QWidget):
+            self.body_layout.addWidget(item)
+        else:
+            self.body_layout.addLayout(item)
+
+
+# ------------------------------------------------------------- grade de ícones
+class IconGridPopup(QFrame):
+    picked = Signal(object)
+
+    def __init__(self, parent: QWidget, items: list, current, columns: int = 2,
+                 icon_size: QSize = QSize(44, 28), default_label: Optional[str] = None):
+        super().__init__(parent, Qt.WindowType.Popup)
+        self.setObjectName("Popup")
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(12, 12, 12, 12)
+        lay.setSpacing(8)
+        grid = QGridLayout()
+        grid.setSpacing(6)
+        for i, (key, ic, tip) in enumerate(items):
+            b = QToolButton()
+            b.setObjectName("ShapeButton")
+            b.setIcon(ic)
+            b.setIconSize(icon_size)
+            b.setToolTip(tip)
+            b.setCheckable(True)
+            b.setChecked(key == current)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.clicked.connect(lambda _c=False, k=key: self._emit(k))
+            grid.addWidget(b, i // columns, i % columns)
+        lay.addLayout(grid)
+        if default_label:
+            d = QPushButton(default_label)
+            d.clicked.connect(lambda: self._emit(None))
+            lay.addWidget(d)
+
+    def _emit(self, key) -> None:
+        self.picked.emit(key)
+        self.close()
+
+
+class IconPickerButton(QToolButton):
+    """Botão que mostra o ícone da opção atual e abre uma grade de opções."""
+    picked = Signal(object)
+
+    def __init__(self, items_factory, columns: int = 2, icon_size: QSize = QSize(44, 28),
+                 default_label: Optional[str] = "Padrão", parent=None):
+        super().__init__(parent)
+        self.setObjectName("Swatch")
+        self.items_factory = items_factory
+        self.columns = columns
+        self.grid_icon = icon_size
+        self.default_label = default_label
+        self.current = None
+        self.setIconSize(QSize(34, 20))
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.clicked.connect(self._open)
+
+    def show_value(self, key, ic: Optional[QIcon], mixed: bool = False) -> None:
+        self.current = key
+        if mixed or ic is None:
+            self.setIcon(QIcon())
+            self.setText("—")
+            self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        else:
+            self.setText("")
+            self.setIcon(ic)
+            self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+
+    def _open(self) -> None:
+        pop = IconGridPopup(self.window(), self.items_factory(), self.current, self.columns,
+                            self.grid_icon, self.default_label)
+        pop.picked.connect(self.picked.emit)
+        pop.adjustSize()
+        g = self.mapToGlobal(QPoint(self.width(), self.height() + 4))
+        pop.move(g.x() - pop.width(), g.y())
+        pop.show()
+
+
+def set_combo(combo, value, mixed: bool = False) -> None:
+    """Seleciona ``value`` num QComboBox (por data); com valores mistos mostra '—'."""
+    combo.blockSignals(True)
+    try:
+        if mixed:
+            combo.setPlaceholderText("—")
+            combo.setCurrentIndex(-1)
+        else:
+            i = combo.findData(value)
+            if i < 0 and value is not None and not combo.isEditable():
+                combo.addItem(str(value), value)
+                i = combo.count() - 1
+            combo.setCurrentIndex(max(0, i) if not combo.isEditable() or i >= 0 else 0)
+    finally:
+        combo.blockSignals(False)

@@ -155,6 +155,9 @@ def stylesheet(c: Chrome) -> str:
                            padding: 5px 0; font-weight: 600; }}
     QPushButton#Segment:checked {{ background: {c.accent}; color: white; }}
     QPushButton#Segment:hover:!checked {{ color: {c.text}; }}
+    QToolButton#SectionHeader {{ background: transparent; border: none; color: {c.text};
+        font-size: 13px; font-weight: 700; padding: 4px 0; }}
+    QToolButton#SectionHeader:hover {{ color: {c.accent}; }}
     QLabel#SectionTitle {{ color: {c.muted}; font-size: 12px; font-weight: 600; }}
     QLabel#Heading {{ color: {c.text}; font-size: 15px; font-weight: 700; }}
     QLabel#Muted {{ color: {c.muted}; }}
@@ -171,6 +174,7 @@ def stylesheet(c: Chrome) -> str:
                           padding: 2px 6px; color: {c.text}; }}
     QToolButton#Swatch:hover {{ background: {c.surface_hover}; }}
     QToolButton#Swatch::menu-indicator {{ image: none; width: 0; }}
+    QToolButton#Swatch:disabled {{ color: {c.muted}; background: {c.panel}; }}
     QToolButton#Card {{ background: {c.card}; border: 1px solid {c.border}; border-radius: 10px;
                         padding: 6px; color: {c.text}; font-size: 14px; text-align: left; }}
     QToolButton#Card:hover {{ border-color: {c.accent}; }}

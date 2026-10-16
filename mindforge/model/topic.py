@@ -22,6 +22,8 @@ MAP_SETTINGS_DEFAULTS = {
     "line_width": "padrao",  # fina | padrao | grossa
     "rainbow": True,        # ramos coloridos
     "compact": False,       # compactar mapa (menos espaço entre tópicos)
+    "branch_style": None,   # estilo de ramo padrão do mapa (None = o do esqueleto)
+    "fishbone_align": False,  # espinha de peixe: todas as espinhas com o mesmo comprimento
 }
 
 

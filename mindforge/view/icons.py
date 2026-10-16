@@ -132,6 +132,30 @@ def _chevron(p: QPainter, c: QColor) -> None:
     p.drawLine(QPointF(12, 15), QPointF(17, 10))
 
 
+def _chevron_right(p: QPainter, c: QColor) -> None:
+    p.drawLine(QPointF(10, 7), QPointF(15, 12))
+    p.drawLine(QPointF(15, 12), QPointF(10, 17))
+
+
+def _align(p: QPainter, widths, anchor: str) -> None:
+    for i, w in enumerate(widths):
+        y = 6 + i * 4
+        x0 = {"left": 4, "center": 12 - w / 2, "right": 20 - w}[anchor]
+        p.drawLine(QPointF(x0, y), QPointF(x0 + w, y))
+
+
+def _align_left(p: QPainter, c: QColor) -> None:
+    _align(p, (16, 11, 16, 9), "left")
+
+
+def _align_center(p: QPainter, c: QColor) -> None:
+    _align(p, (16, 10, 16, 8), "center")
+
+
+def _align_right(p: QPainter, c: QColor) -> None:
+    _align(p, (16, 11, 16, 9), "right")
+
+
 def _new(p: QPainter, c: QColor) -> None:
     path = QPainterPath(QPointF(14, 3))
     path.lineTo(QPointF(6, 3))
@@ -171,7 +195,8 @@ _DRAW: dict[str, Callable[[QPainter, QColor], None]] = {
     "relation": _relation, "undo": _undo, "redo": _redo, "export": _export, "search": _search,
     "panel": _panel, "fullscreen": _fullscreen, "zoom_in": _zoom_in, "zoom_out": _zoom_out,
     "fit": _fit, "marker": _marker, "note": _note, "chevron": _chevron, "new": _new,
-    "open": _open, "save": _save,
+    "open": _open, "save": _save, "chevron_right": _chevron_right,
+    "align_left": _align_left, "align_center": _align_center, "align_right": _align_right,
 }
 
 
@@ -213,9 +238,11 @@ def shape_icon(shape: str, color: str, fill: str, w: int = 34, h: int = 22) -> Q
             f.setBold(True)
             p.setFont(f)
             p.drawText(QRectF(0, 0, w, h), int(Qt.AlignmentFlag.AlignCenter), "Auto")
-        elif shape == "sublinhado":
-            p.setPen(_pen(col, 1.8))
+        elif shape in ("sublinhado", "sublinhado_duplo"):
+            p.setPen(_pen(col, 1.6))
             p.drawLine(QPointF(r.left(), r.bottom()), QPointF(r.right(), r.bottom()))
+            if shape == "sublinhado_duplo":
+                p.drawLine(QPointF(r.left(), r.bottom() - 3.5), QPointF(r.right(), r.bottom() - 3.5))
         elif shape == "nenhuma":
             p.setPen(_pen(col, 1.2))
             f = p.font()
@@ -224,9 +251,71 @@ def shape_icon(shape: str, color: str, fill: str, w: int = 34, h: int = 22) -> Q
             p.drawText(QRectF(0, 0, w, h), int(Qt.AlignmentFlag.AlignCenter), "Aa")
         else:
             path = shape_path(shape, r)
-            p.setPen(_pen(col, 1.4))
-            p.setBrush(QColor(fill))
-            p.drawPath(path)
+            if path is not None:
+                p.setPen(_pen(col, 1.4))
+                p.setBrush(QColor(fill))
+                p.drawPath(path)
         p.end()
         ic.addPixmap(pm)
     return ic
+
+
+def _pixmap_icon(w: int, h: int, draw) -> QIcon:
+    ic = QIcon()
+    for scale in (1, 2):
+        pm = QPixmap(w * scale, h * scale)
+        pm.setDevicePixelRatio(scale)
+        pm.fill(Qt.GlobalColor.transparent)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        draw(p)
+        p.end()
+        ic.addPixmap(pm)
+    return ic
+
+
+def branch_style_icon(style: str, color: str, w: int = 44, h: int = 28) -> QIcon:
+    from mindforge.view.branches import draw_group
+    kids = [("a", (w - 4.0, 4.0)), ("b", (w - 4.0, h / 2)), ("c", (w - 4.0, h - 4.0))]
+
+    def draw(p: QPainter) -> None:
+        d = draw_group(style, "right", (4.0, h / 2), kids, {k: color for k, _ in kids}, color, "nenhum", 1.6,
+                       radius=5.0)
+        p.setPen(_pen(QColor(color), 1.6))
+        for st in d.strokes:
+            p.drawPath(st.path)
+    return _pixmap_icon(w, h, draw)
+
+
+def line_end_icon(kind: str, color: str, w: int = 44, h: int = 20) -> QIcon:
+    from mindforge.view.branches import end_mark
+
+    def draw(p: QPainter) -> None:
+        col = QColor(color)
+        p.setPen(_pen(col, 1.6))
+        tip = QPointF(w - 6, h / 2)
+        p.drawLine(QPointF(6, h / 2), tip)
+        m = end_mark(kind, tip, (1.0, 0.0), 1.6)
+        if m is not None:
+            path, filled = m
+            if filled:
+                p.setPen(Qt.PenStyle.NoPen)
+                p.setBrush(col)
+            p.drawPath(path)
+    return _pixmap_icon(w, h, draw)
+
+
+def pattern_icon(pattern: str, color: str, w: int = 56, h: int = 14) -> QIcon:
+    from mindforge.view.painting import pattern_pen
+
+    def draw(p: QPainter) -> None:
+        if pattern == "nenhum":
+            p.setPen(_pen(QColor(color), 1.0))
+            f = p.font()
+            f.setPixelSize(10)
+            p.setFont(f)
+            p.drawText(QRectF(0, 0, w, h), int(Qt.AlignmentFlag.AlignCenter), "Nenhum")
+            return
+        p.setPen(pattern_pen(QColor(color), 1.8, pattern))
+        p.drawLine(QPointF(3, h / 2), QPointF(w - 3, h / 2))
+    return _pixmap_icon(w, h, draw)

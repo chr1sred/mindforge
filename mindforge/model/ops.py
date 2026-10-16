@@ -182,6 +182,49 @@ def set_style(m: MindMap, ids: Iterable[str], key: str, value) -> None:
             t.style[key] = value
 
 
+def topic_level(m: MindMap, t: Topic) -> tuple[str, int]:
+    """(árvore, profundidade): 'raiz' para a árvore principal ou o id do flutuante."""
+    top = m.top_of(t)
+    return ("raiz" if top is m.root else "flutuante", t.depth)
+
+
+def apply_style_to_level(m: MindMap, tid: str) -> list[str]:
+    """Copia o estilo do tópico para todos os tópicos do mesmo nível. Retorna os ids alterados."""
+    src = _get(m, tid)
+    key = topic_level(m, src)
+    changed = []
+    for t in m.all_topics():
+        if t is not src and topic_level(m, t) == key:
+            t.style = dict(src.style)
+            changed.append(t.id)
+    return changed
+
+
+def with_descendants(m: MindMap, ids: Iterable[str]) -> list[str]:
+    out: list[str] = []
+    seen: set = set()
+    for tid in ids:
+        t = m.find(tid)
+        if t is None:
+            continue
+        for x in t.walk():
+            if x.id not in seen:
+                seen.add(x.id)
+                out.append(x.id)
+    return out
+
+
+def set_styles(m: MindMap, ids: Iterable[str], values: dict) -> None:
+    """Aplica várias chaves de estilo de uma vez (None remove a chave)."""
+    for tid in ids:
+        t = _get(m, tid)
+        for key, value in values.items():
+            if value is None:
+                t.style.pop(key, None)
+            else:
+                t.style[key] = value
+
+
 def clear_style(m: MindMap, ids: Iterable[str]) -> None:
     for tid in ids:
         _get(m, tid).style.clear()

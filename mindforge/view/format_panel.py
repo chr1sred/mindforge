@@ -1,34 +1,68 @@
-"""Painel lateral no estilo do XMind: abas "Estilo" (tópico) e "Mapa"."""
+"""Painel lateral no estilo do XMind: abas "Estilo" (tópico) e "Mapa".
+
+A aba Estilo é dividida em seções recolhíveis (Forma, Limite, Texto, Ramo,
+Marcadores, Nota). Com vários tópicos selecionados, valores diferentes
+aparecem como "—" e qualquer alteração vale para todos.
+"""
 from __future__ import annotations
 
-from typing import Optional
+from functools import lru_cache
+from typing import Callable, Optional
 
 from PySide6.QtCore import QPoint, QSize, Qt, QTimer
 from PySide6.QtGui import QFontDatabase, QIcon
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QGridLayout, QHBoxLayout, QLabel, QPlainTextEdit,
-    QPushButton, QScrollArea, QStackedWidget, QToolButton, QVBoxLayout, QWidget,
+    QButtonGroup, QCheckBox, QComboBox, QCompleter, QGridLayout, QHBoxLayout, QLabel, QMenu,
+    QPlainTextEdit, QPushButton, QScrollArea, QSpinBox, QStackedWidget, QToolButton, QVBoxLayout,
+    QWidget,
 )
 
 from mindforge.layouts import LAYOUTS
 from mindforge.model import ops
-from mindforge.themes import SHAPES, visible_themes
+from mindforge.themes import (
+    BORDER_STYLES, BRANCH_STYLES, LEVELS, LINE_ENDS, LINE_PATTERNS, SHAPES, TEXT_CASES, visible_themes,
+)
 from mindforge.view import style
-from mindforge.view.icons import icon, shape_icon
-from mindforge.view.painting import MARKER_LABELS
+from mindforge.view.icons import branch_style_icon, icon, line_end_icon, pattern_icon, shape_icon
+from mindforge.view.painting import MARKER_LABELS, default_family, ensure_fonts, font_available
 from mindforge.view.resources import marker_icon
 from mindforge.view.widgets import (
-    CardButton, Segmented, SkeletonPopup, SwatchButton, row, section_title, separator, thumbnail,
+    CardButton, CollapsibleSection, IconPickerButton, Segmented, SkeletonPopup, SwatchButton, row,
+    section_title, separator, set_combo, thumbnail,
 )
 
-FONT_SIZES = [10, 11, 12, 13, 14, 16, 18, 20, 22, 24, 28, 32, 40, 48]
-GLOBAL_FONTS = ["Helvetica Neue", "Avenir Next", "Inter", "Roboto", "Open Sans", "Lato", "Montserrat",
+FONT_SIZES = [10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24, 28, 32, 40, 48, 64]
+GLOBAL_FONTS = ["Inter", "Helvetica Neue", "Avenir Next", "Roboto", "Open Sans", "Lato", "Montserrat",
                 "Poppins", "Segoe UI", "Arial", "Verdana", "Georgia", "Times New Roman", "Menlo",
                 "DejaVu Sans", "Noto Sans"]
-LINE_WIDTHS = [("padrao", "Predefinição"), ("fina", "Fina"), ("grossa", "Grossa")]
+MAP_LINE_WIDTHS = [("padrao", "Predefinição"), ("fina", "Fina"), ("grossa", "Grossa")]
 LEVEL_NAMES = {"root": "Tema central", "main": "Tópico principal", "sub": "Subtópico",
                "floating": "Tópico flutuante"}
 THEME_THUMB = QSize(74, 48)
+WEIGHT_NAMES = {100: "Thin", 200: "ExtraLight", 300: "Light", 400: "Regular", 500: "Medium",
+                600: "SemiBold", 700: "Bold", 800: "ExtraBold", 900: "Black"}
+
+
+@lru_cache(maxsize=1)
+def font_families() -> tuple[str, ...]:
+    ensure_fonts()
+    fams = [f for f in QFontDatabase.families()
+            if not f.startswith((".", "@")) and not QFontDatabase.isPrivateFamily(f)]
+    return tuple(sorted(set(fams), key=str.casefold))
+
+
+@lru_cache(maxsize=256)
+def font_weights(family: str) -> tuple[tuple[int, str], ...]:
+    """Pesos reais disponíveis na fonte (sem os itálicos)."""
+    out: dict[int, str] = {}
+    for st in QFontDatabase.styles(family):
+        if QFontDatabase.italic(family, st):
+            continue
+        w = int(round(QFontDatabase.weight(family, st) / 100.0) * 100)
+        out.setdefault(w, st)
+    if not out:
+        out = {400: "Regular", 700: "Bold"}
+    return tuple(sorted(out.items()))
 
 
 def _scroll(inner: QWidget) -> QScrollArea:
@@ -40,12 +74,25 @@ def _scroll(inner: QWidget) -> QScrollArea:
     return sa
 
 
+def _combo(items: list[tuple], default: Optional[str] = "Padrão") -> QComboBox:
+    c = QComboBox()
+    if default:
+        c.addItem(default, None)
+    for item in items:
+        if len(item) == 3:
+            c.addItem(item[2], item[1], item[0])
+        else:
+            c.addItem(item[1], item[0])
+    return c
+
+
 class FormatPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("SidePanel")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.canvas = None
+        self._refreshing = False
         self._note_tid: Optional[str] = None
         self._note_timer = QTimer(self)
         self._note_timer.setSingleShot(True)
@@ -64,20 +111,18 @@ class FormatPanel(QWidget):
 
         self._build_style_page()
         self._build_map_page()
-        self.setMinimumWidth(286)
-        self.setMaximumWidth(380)
+        self.setMinimumWidth(296)
+        self.setMaximumWidth(400)
 
     # ================================================================ Estilo
     def _build_style_page(self) -> None:
         self.style_stack = QStackedWidget()
-        # estado vazio
         empty = QWidget()
         el = QVBoxLayout(empty)
         el.addStretch(1)
-        ic = QLabel()
-        ic.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._empty_icon = ic
-        el.addWidget(ic)
+        self._empty_icon = QLabel()
+        self._empty_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        el.addWidget(self._empty_icon)
         t = QLabel("Nenhum tópico selecionado")
         t.setObjectName("Heading")
         t.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -92,8 +137,10 @@ class FormatPanel(QWidget):
 
         inner = QWidget()
         lay = QVBoxLayout(inner)
-        lay.setContentsMargins(0, 0, 4, 0)
+        lay.setContentsMargins(0, 0, 6, 0)
         lay.setSpacing(10)
+
+        # -------------------------------------------------- cabeçalho
         self.heading = QLabel()
         self.heading.setObjectName("Heading")
         self.heading.setWordWrap(True)
@@ -101,13 +148,23 @@ class FormatPanel(QWidget):
         self.sub_heading.setObjectName("Muted")
         lay.addWidget(self.heading)
         lay.addWidget(self.sub_heading)
+        hb = QHBoxLayout()
+        self.level_btn = QPushButton("Aplicar ao nível")
+        self.level_btn.setToolTip("Copia este estilo para todos os tópicos do mesmo nível")
+        self.level_btn.clicked.connect(self._apply_to_level)
+        self.reset_btn = QPushButton("Repor estilo")
+        self.reset_btn.setToolTip("Volta ao estilo padrão do tema")
+        self.reset_btn.clicked.connect(self._reset_style)
+        hb.addWidget(self.level_btn)
+        hb.addWidget(self.reset_btn)
+        lay.addLayout(hb)
         lay.addWidget(separator())
 
-        # Forma
-        lay.addWidget(section_title("Forma"))
+        # -------------------------------------------------- Forma
+        sec = CollapsibleSection("Forma", "forma")
         grid = QGridLayout()
         grid.setSpacing(6)
-        self.shape_btns: dict[Optional[str], QToolButton] = {}
+        self.shape_btns: dict[str, QToolButton] = {}
         shapes = [("padrao", "Automática (do tema)")] + list(SHAPES.items())
         for i, (key, label) in enumerate(shapes):
             b = QToolButton()
@@ -117,46 +174,151 @@ class FormatPanel(QWidget):
             b.setIconSize(QSize(34, 22))
             b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.clicked.connect(lambda _c=False, k=key: self.set_style("shape", None if k == "padrao" else k))
-            grid.addWidget(b, i // 4, i % 4)
+            grid.addWidget(b, i // 5, i % 5)
             self.shape_btns[key] = b
-        lay.addLayout(grid)
-        self._shape_order = [k for k, _ in shapes]
-
-        lay.addWidget(separator())
-        lay.addWidget(section_title("Cores"))
+        sec.add(grid)
         self.fill_btn = SwatchButton(True)
         self.fill_btn.picked.connect(lambda v: self.set_style("fill", v))
+        sec.add(row("Preenchimento", self.fill_btn))
+        self.width_spin = QSpinBox()
+        self.width_spin.setRange(0, 2000)
+        self.width_spin.setSpecialValueText("Auto")
+        self.width_spin.setSuffix(" px")
+        self.width_spin.setSingleStep(10)
+        self.width_spin.setToolTip("Largura fixa do tópico (o texto quebra para caber). 0 = automática")
+        self.width_spin.editingFinished.connect(self._on_width)
+        self.width_fit = QPushButton("Ajustar")
+        self.width_fit.setToolTip("Volta à largura automática")
+        self.width_fit.clicked.connect(lambda: self.set_style("width", None))
+        sec.add(row("Largura", self.width_spin, self.width_fit))
+        lay.addWidget(sec)
+        self._sections = [sec]
+
+        # -------------------------------------------------- Limite
+        sec = CollapsibleSection("Limite", "limite")
+        self.border_style = _combo([(k, v) for k, v in BORDER_STYLES.items()])
+        self.border_style.activated.connect(lambda _i: self.set_style("border_style", self.border_style.currentData()))
+        self.border_level = _combo(list(LEVELS.items()))
+        self.border_level.activated.connect(lambda _i: self.set_style("border_level", self.border_level.currentData()))
         self.border_btn = SwatchButton(True)
         self.border_btn.picked.connect(lambda v: self.set_style("border", v))
-        self.line_btn = SwatchButton(False)
-        self.line_btn.picked.connect(lambda v: self.set_style("line_color", v))
-        lay.addLayout(row("Preenchimento", self.fill_btn))
-        lay.addLayout(row("Borda", self.border_btn))
-        lay.addLayout(row("Linha do ramo", self.line_btn))
+        sec.add(row("Estilo", self.border_style))
+        sec.add(row("Espessura", self.border_level))
+        sec.add(row("Cor", self.border_btn))
+        lay.addWidget(sec)
+        self._sections.append(sec)
 
-        lay.addWidget(separator())
-        lay.addWidget(section_title("Texto"))
-        self.size = QComboBox()
-        self.size.addItem("Auto", None)
-        for s in FONT_SIZES:
-            self.size.addItem(f"{s} px", s)
-        self.size.activated.connect(lambda _i: self.set_style("font_size", self.size.currentData()))
-        self.bold = self._toggle("N", "Negrito", bold=True)
-        self.bold.clicked.connect(lambda on: self.set_style("bold", bool(on)))
-        self.italic = self._toggle("I", "Itálico", italic=True)
-        self.italic.clicked.connect(lambda on: self.set_style("italic", bool(on)))
-        self.text_btn = SwatchButton(False)
-        self.text_btn.picked.connect(lambda v: self.set_style("text_color", v))
+        # -------------------------------------------------- Texto
+        sec = CollapsibleSection("Texto", "texto")
+        self.font_combo = QComboBox()
+        self.font_combo.setEditable(True)
+        self.font_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.font_combo.setMaxVisibleItems(18)
+        self._fonts_filled = False
+        self.font_combo.activated.connect(self._on_font_activated)
+        self.font_combo.lineEdit().editingFinished.connect(self._on_font_typed)
+        sec.add(self.font_combo)
+        self.font_warning = QLabel("Fonte não instalada neste computador — usando substituta.")
+        self.font_warning.setObjectName("Muted")
+        self.font_warning.setWordWrap(True)
+        self.font_warning.hide()
+        sec.add(self.font_warning)
         h = QHBoxLayout()
         h.setSpacing(6)
-        h.addWidget(self.size, 1)
-        h.addWidget(self.bold)
-        h.addWidget(self.italic)
+        self.weight_combo = QComboBox()
+        self.weight_combo.activated.connect(lambda _i: self.set_styles(
+            {"font_weight": self.weight_combo.currentData(), "bold": None}))
+        self.size_combo = QComboBox()
+        self.size_combo.setEditable(True)
+        self.size_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.size_combo.addItem("Auto", None)
+        for s in FONT_SIZES:
+            self.size_combo.addItem(str(s), s)
+        self.size_combo.activated.connect(lambda _i: self.set_style("font_size", self.size_combo.currentData()))
+        self.size_combo.lineEdit().editingFinished.connect(self._on_size_typed)
+        self.size_combo.setFixedWidth(82)
+        h.addWidget(self.weight_combo, 1)
+        h.addWidget(self.size_combo)
+        sec.add(h)
+        h = QHBoxLayout()
+        h.setSpacing(6)
+        self.bold = self._toggle("N", "Negrito", bold=True)
+        self.bold.clicked.connect(lambda on: self.set_styles({"font_weight": 700 if on else 400, "bold": None}))
+        self.italic = self._toggle("I", "Itálico", italic=True)
+        self.italic.clicked.connect(lambda on: self.set_style("italic", bool(on)))
+        self.strike = self._toggle("S", "Riscado", strike=True)
+        self.strike.clicked.connect(lambda on: self.set_style("strike", bool(on)))
+        self.case_btn = QToolButton()
+        self.case_btn.setObjectName("StyleToggle")
+        self.case_btn.setText("Tt")
+        self.case_btn.setToolTip("Maiúsculas e minúsculas")
+        self.case_btn.setFixedSize(38, 28)
+        self.case_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        cm = QMenu(self.case_btn)
+        self.case_actions = {}
+        for key, label in TEXT_CASES.items():
+            a = cm.addAction(label, lambda k=key: self.set_style("text_case", None if k == "normal" else k))
+            a.setCheckable(True)
+            self.case_actions[key] = a
+        self.case_btn.setMenu(cm)
+        self.text_btn = SwatchButton(False)
+        self.text_btn.picked.connect(lambda v: self.set_style("text_color", v))
+        for w in (self.bold, self.italic, self.strike, self.case_btn):
+            h.addWidget(w)
+        h.addStretch(1)
         h.addWidget(self.text_btn)
-        lay.addLayout(h)
+        sec.add(h)
+        h = QHBoxLayout()
+        h.setSpacing(6)
+        self.align_group = QButtonGroup(self)
+        self.align_group.setExclusive(True)
+        self.align_btns: dict[str, QToolButton] = {}
+        for key, tip in (("left", "Alinhar à esquerda"), ("center", "Centralizar"), ("right", "Alinhar à direita")):
+            b = QToolButton()
+            b.setObjectName("StyleToggle")
+            b.setCheckable(True)
+            b.setToolTip(tip)
+            b.setFixedHeight(28)
+            b.setSizePolicy(b.sizePolicy().horizontalPolicy().Expanding, b.sizePolicy().verticalPolicy())
+            b.clicked.connect(lambda _c=False, k=key: self.set_style("align", k))
+            self.align_group.addButton(b)
+            self.align_btns[key] = b
+            h.addWidget(b)
+        sec.add(h)
+        lay.addWidget(sec)
+        self._sections.append(sec)
 
-        lay.addWidget(separator())
-        lay.addWidget(section_title("Marcadores"))
+        # -------------------------------------------------- Ramo
+        sec = CollapsibleSection("Ramo", "ramo")
+        self.branch_btn = IconPickerButton(self._branch_items, 2, QSize(44, 28), "Padrão do esqueleto")
+        self.branch_btn.picked.connect(lambda k: self.set_style("branch_style", k, branch=True))
+        self.pattern_combo = QComboBox()
+        self.pattern_combo.setIconSize(QSize(56, 14))
+        self.pattern_combo.activated.connect(lambda _i: self.set_style(
+            "line_pattern", self.pattern_combo.currentData(), branch=True))
+        self.end_btn = IconPickerButton(self._end_items, 2, QSize(44, 20), "Padrão")
+        self.end_btn.picked.connect(lambda k: self.set_style("line_end", k, branch=True))
+        self.line_level = _combo(list(LEVELS.items()))
+        self.line_level.activated.connect(lambda _i: self.set_style(
+            "line_level", self.line_level.currentData(), branch=True))
+        self.line_btn = SwatchButton(False)
+        self.line_btn.picked.connect(lambda v: self.set_style("line_color", v, branch=True))
+        self.branch_desc = QCheckBox("Aplicar também aos descendentes")
+        self.branch_hint = QLabel()
+        self.branch_hint.setObjectName("Muted")
+        self.branch_hint.setWordWrap(True)
+        sec.add(row("Estilo", self.branch_btn))
+        sec.add(row("Linha", self.pattern_combo))
+        sec.add(row("Fim", self.end_btn))
+        sec.add(row("Espessura", self.line_level))
+        sec.add(row("Cor", self.line_btn))
+        sec.add(self.branch_desc)
+        sec.add(self.branch_hint)
+        lay.addWidget(sec)
+        self._sections.append(sec)
+
+        # -------------------------------------------------- Marcadores
+        sec = CollapsibleSection("Marcadores", "marcadores")
         mg = QGridLayout()
         mg.setSpacing(6)
         self.marker_btns: dict[str, QToolButton] = {}
@@ -171,43 +333,52 @@ class FormatPanel(QWidget):
             b.clicked.connect(lambda _on, k=key: self._toggle_marker(k))
             mg.addWidget(b, i // 4, i % 4)
             self.marker_btns[key] = b
-        lay.addLayout(mg)
+        sec.add(mg)
+        lay.addWidget(sec)
+        self._sections.append(sec)
 
-        lay.addWidget(separator())
-        lay.addWidget(section_title("Nota"))
+        # -------------------------------------------------- Nota
+        sec = CollapsibleSection("Nota", "nota")
         self.note = QPlainTextEdit()
         self.note.setPlaceholderText("Escreva uma nota para este tópico…")
         self.note.setMinimumHeight(110)
         self.note.textChanged.connect(lambda: self._note_timer.start())
         self.note.installEventFilter(self)
-        lay.addWidget(self.note)
-        self.reset_btn = QPushButton("Restaurar estilo padrão")
-        self.reset_btn.setObjectName("LinkButton")
-        self.reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.reset_btn.clicked.connect(self._reset_style)
-        lay.addWidget(self.reset_btn)
+        sec.add(self.note)
+        lay.addWidget(sec)
+        self._sections.append(sec)
         lay.addStretch(1)
         self.style_stack.addWidget(_scroll(inner))
         self.pages.addWidget(self.style_stack)
 
-    def _toggle(self, text: str, tip: str, bold: bool = False, italic: bool = False) -> QToolButton:
+    def _toggle(self, text: str, tip: str, bold: bool = False, italic: bool = False,
+                strike: bool = False) -> QToolButton:
         b = QToolButton()
         b.setObjectName("StyleToggle")
         b.setText(text)
         b.setToolTip(tip)
         b.setCheckable(True)
-        b.setFixedSize(30, 28)
+        b.setFixedSize(32, 28)
         f = b.font()
         f.setBold(bold)
         f.setItalic(italic)
+        f.setStrikeOut(strike)
         b.setFont(f)
         return b
+
+    def _branch_items(self) -> list:
+        col = style.chrome().text
+        return [(k, branch_style_icon(k, col), v) for k, v in BRANCH_STYLES.items()]
+
+    def _end_items(self) -> list:
+        col = style.chrome().text
+        return [(k, line_end_icon(k, col), v) for k, v in LINE_ENDS.items()]
 
     # ================================================================== Mapa
     def _build_map_page(self) -> None:
         inner = QWidget()
         lay = QVBoxLayout(inner)
-        lay.setContentsMargins(0, 0, 4, 0)
+        lay.setContentsMargins(0, 0, 6, 0)
         lay.setSpacing(10)
 
         lay.addWidget(section_title("Esqueleto"))
@@ -242,22 +413,23 @@ class FormatPanel(QWidget):
 
         lay.addWidget(separator())
         lay.addWidget(section_title("Tipo de letra global"))
-        self.font_combo = QComboBox()
-        self.font_combo.addItem("Predefinição", None)
-        families = set(QFontDatabase.families())
-        for fam in GLOBAL_FONTS:
-            if fam in families:
-                self.font_combo.addItem(fam, fam)
-        self.font_combo.activated.connect(lambda _i: self._set_setting("font", self.font_combo.currentData()))
-        lay.addWidget(self.font_combo)
+        self.map_font = QComboBox()
+        self.map_font.addItem("Predefinição (Inter)", None)
+        for fam in GLOBAL_FONTS[1:]:
+            if font_available(fam):
+                self.map_font.addItem(fam, fam)
+        self.map_font.activated.connect(lambda _i: self._set_setting("font", self.map_font.currentData()))
+        lay.addWidget(self.map_font)
 
-        lay.addWidget(section_title("Largura da linha de ramo"))
-        self.line_combo = QComboBox()
-        for key, label in LINE_WIDTHS:
-            self.line_combo.addItem(label, key)
-        self.line_combo.activated.connect(lambda _i: self._set_setting("line_width", self.line_combo.currentData()))
-        lay.addWidget(self.line_combo)
-
+        lay.addWidget(section_title("Ramos"))
+        self.map_branch = IconPickerButton(self._branch_items, 2, QSize(44, 28), "Padrão do esqueleto")
+        self.map_branch.picked.connect(lambda k: self._set_setting("branch_style", k))
+        lay.addLayout(row("Estilo de ramo padrão", self.map_branch))
+        self.map_line = QComboBox()
+        for key, label in MAP_LINE_WIDTHS:
+            self.map_line.addItem(label, key)
+        self.map_line.activated.connect(lambda _i: self._set_setting("line_width", self.map_line.currentData()))
+        lay.addLayout(row("Largura da linha", self.map_line))
         self.rainbow = QCheckBox("Ramo colorido")
         self.rainbow.clicked.connect(lambda on: self._set_setting("rainbow", bool(on)))
         lay.addWidget(self.rainbow)
@@ -267,6 +439,10 @@ class FormatPanel(QWidget):
         self.compact = QCheckBox("Compactar mapa")
         self.compact.clicked.connect(lambda on: self._set_setting("compact", bool(on)))
         lay.addWidget(self.compact)
+        self.fish_align = QCheckBox("Alinhar tópicos principais (espinha de peixe)")
+        self.fish_align.setToolTip("Todas as espinhas com o mesmo comprimento, em fileiras retas")
+        self.fish_align.clicked.connect(lambda on: self._set_setting("fishbone_align", bool(on)))
+        lay.addWidget(self.fish_align)
         lay.addStretch(1)
         self.pages.addWidget(_scroll(inner))
 
@@ -283,6 +459,14 @@ class FormatPanel(QWidget):
         for key, b in self.shape_btns.items():
             b.setIcon(shape_icon(key, c.text, c.surface_hover))
         self._empty_icon.setPixmap(icon("topic", c.muted, 44).pixmap(44, 44))
+        for key, b in self.align_btns.items():
+            b.setIcon(icon(f"align_{key}", c.text, 18))
+        self.pattern_combo.clear()
+        self.pattern_combo.addItem("Padrão", None)
+        for key, label in LINE_PATTERNS.items():
+            self.pattern_combo.addItem(pattern_icon(key, c.text), "" if key != "nenhum" else label, key)
+        for sec in self._sections:
+            sec._apply()
         self.refresh()
 
     def eventFilter(self, obj, ev):
@@ -293,47 +477,158 @@ class FormatPanel(QWidget):
     def _ids(self) -> list[str]:
         return self.canvas.mscene.selected_topic_ids() if self.canvas else []
 
+    def _ensure_fonts_listed(self) -> None:
+        if self._fonts_filled:
+            return
+        self._fonts_filled = True
+        self.font_combo.blockSignals(True)
+        self.font_combo.addItem(f"Padrão ({default_family()})", None)
+        for fam in font_families():
+            self.font_combo.addItem(fam, fam)
+        comp = QCompleter([self.font_combo.itemText(i) for i in range(self.font_combo.count())], self.font_combo)
+        comp.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        comp.setFilterMode(Qt.MatchFlag.MatchContains)
+        self.font_combo.setCompleter(comp)
+        self.font_combo.blockSignals(False)
+
     # ============================================================= refresh
     def refresh(self) -> None:
-        if self.canvas is None:
+        if self.canvas is None or self._refreshing:
             return
-        self._refresh_map()
+        self._refreshing = True
+        try:
+            self._refresh_map()
+            self._refresh_style()
+        finally:
+            self._refreshing = False
+
+    def _values(self, fn: Callable) -> tuple[object, bool]:
+        """(valor do tópico atual, há valores diferentes na seleção?)."""
+        m = self.canvas.doc.map
+        vis = self.canvas.mscene.visuals
+        cur = self.canvas.current()
+        vals = []
+        for tid in self._ids():
+            t = m.find(tid)
+            if t is not None and tid in vis:
+                vals.append(fn(t, vis[tid].style))
+        t = m.find(cur)
+        current = fn(t, vis[cur].style) if t is not None and cur in vis else (vals[0] if vals else None)
+        return current, len(set(map(repr, vals))) > 1
+
+    def _refresh_style(self) -> None:
         m = self.canvas.doc.map
         ids = self._ids()
         cur = self.canvas.current()
         topic = m.find(cur) if cur else None
-        if topic is None:
+        if topic is None or cur not in self.canvas.mscene.visuals:
             self.style_stack.setCurrentIndex(0)
             self._set_note_text(None, "")
             return
         self.style_stack.setCurrentIndex(1)
         name = topic.text.split("\n")[0]
         self.heading.setText(name if len(name) <= 48 else name[:47] + "…")
+        level = self.canvas.mscene.visuals[cur].level
         if len(ids) > 1:
             self.sub_heading.setText(f"{len(ids)} tópicos selecionados")
         else:
-            level = "root" if topic is m.root else ("floating" if m.is_floating_root(topic)
-                                                     else ("main" if topic.parent is m.root else "sub"))
-            self.sub_heading.setText(LEVEL_NAMES[level])
-        vis = self.canvas.mscene.visuals.get(topic.id)
-        st = vis.style if vis else None
-        current_shape = topic.style.get("shape") or "padrao"
+            self.sub_heading.setText(LEVEL_NAMES.get(level, ""))
+        self.level_btn.setEnabled(len(ids) == 1)
+
+        # Forma
+        shape, mixed = self._values(lambda t, s: t.style.get("shape") or "padrao")
         for k, b in self.shape_btns.items():
-            b.setChecked(k == current_shape)
-        if st:
-            self.fill_btn.show_color(st.fill or "")
-            has_border = bool(st.border) and (st.border_width > 0 or st.shape == "sublinhado")
-            self.border_btn.show_color(st.border if has_border else "")
-            self.text_btn.show_color(st.text_color)
-            self.line_btn.show_color(st.line_color)
-            self.bold.setChecked(st.bold)
-            self.italic.setChecked(st.italic)
-        fs = topic.style.get("font_size")
-        idx = self.size.findData(int(fs)) if fs else 0
-        if idx < 0:
-            self.size.addItem(f"{int(fs)} px", int(fs))
-            idx = self.size.count() - 1
-        self.size.setCurrentIndex(idx)
+            b.setChecked(not mixed and k == shape)
+        fill, mixed = self._values(lambda t, s: s.fill or "")
+        self.fill_btn.show_color(None if mixed else fill)
+        width, mixed = self._values(lambda t, s: int(t.style.get("width") or 0))
+        self.width_spin.blockSignals(True)
+        self.width_spin.setValue(0 if mixed else int(width))
+        self.width_spin.blockSignals(False)
+
+        # Limite
+        v, mixed = self._values(lambda t, s: t.style.get("border_style"))
+        set_combo(self.border_style, v, mixed)
+        v, mixed = self._values(lambda t, s: t.style.get("border_level"))
+        set_combo(self.border_level, v, mixed)
+        v, mixed = self._values(lambda t, s: (s.border or "") if s.border_width > 0 else "")
+        self.border_btn.show_color(None if mixed else v)
+
+        # Texto
+        self._ensure_fonts_listed()
+        fam, mixed = self._values(lambda t, s: t.style.get("font_family"))
+        set_combo(self.font_combo, fam, mixed)
+        if not mixed and fam and self.font_combo.findData(fam) < 0:
+            self.font_combo.setEditText(fam)
+        self.font_warning.setVisible(bool(fam) and not mixed and not font_available(fam))
+        real_family = fam if fam and font_available(fam) else (m.setting("font") or default_family())
+        self.weight_combo.blockSignals(True)
+        self.weight_combo.clear()
+        for w, label in font_weights(real_family):
+            self.weight_combo.addItem(label or WEIGHT_NAMES.get(w, str(w)), w)
+        self.weight_combo.blockSignals(False)
+        wv, mixed = self._values(lambda t, s: s.weight)
+        if not mixed and self.weight_combo.findData(wv) < 0:
+            self.weight_combo.addItem(WEIGHT_NAMES.get(wv, str(wv)), wv)
+        set_combo(self.weight_combo, wv, mixed)
+        fs, mixed = self._values(lambda t, s: t.style.get("font_size"))
+        self.size_combo.blockSignals(True)
+        if mixed:
+            self.size_combo.setEditText("—")
+        elif fs is None:
+            real, _ = self._values(lambda t, s: int(round(s.font_size)))
+            self.size_combo.setCurrentIndex(0)
+            self.size_combo.setEditText(f"{real}")
+        else:
+            self.size_combo.setEditText(str(int(fs)))
+        self.size_combo.blockSignals(False)
+        for btn, fn in ((self.bold, lambda t, s: s.bold), (self.italic, lambda t, s: s.italic),
+                        (self.strike, lambda t, s: s.strike)):
+            v, mixed = self._values(fn)
+            btn.setChecked(bool(v) and not mixed)
+        case, mixed = self._values(lambda t, s: s.text_case)
+        for k, a in self.case_actions.items():
+            a.setChecked(not mixed and k == case)
+        tc, mixed = self._values(lambda t, s: s.text_color)
+        self.text_btn.show_color(None if mixed else tc)
+        al, mixed = self._values(lambda t, s: s.resolved_align)
+        self.align_group.setExclusive(False)
+        for k, b in self.align_btns.items():
+            b.setChecked(not mixed and k == al)
+        self.align_group.setExclusive(True)
+
+        # Ramo
+        groups = {g.parent: g for g in self.canvas.mscene.layout_result.groups}
+        styled = [tid for tid in ids if tid in groups and groups[tid].style != "indent"]
+        any_group = any(tid in groups for tid in ids)
+        self.branch_btn.setEnabled(bool(styled))
+        if not any_group:
+            self.branch_hint.setText("As opções valem para as linhas que saem deste tópico "
+                                     "para os subtópicos dele.")
+        elif not styled:
+            self.branch_hint.setText("Neste esqueleto o formato das linhas destes subtópicos é fixo; "
+                                     "linha, fim, espessura e cor continuam valendo.")
+        else:
+            self.branch_hint.setText("")
+        self.branch_hint.setVisible(bool(self.branch_hint.text()))
+        col = style.chrome().text
+        bs, mixed = self._values(lambda t, s: t.style.get("branch_style"))
+        if bs:
+            self.branch_btn.show_value(bs, branch_style_icon(bs, col), mixed)
+        else:
+            default = (groups[cur].style if cur in groups and groups[cur].style != "indent"
+                       else (m.setting("branch_style") or LAYOUTS[m.layout].default_branch))
+            self.branch_btn.show_value(None, branch_style_icon(m.setting("branch_style") or default, col), mixed)
+        lp, mixed = self._values(lambda t, s: t.style.get("line_pattern"))
+        set_combo(self.pattern_combo, lp, mixed)
+        le, mixed = self._values(lambda t, s: s.line_end)
+        self.end_btn.show_value(le, line_end_icon(le or "nenhum", col), mixed)
+        ll, mixed = self._values(lambda t, s: t.style.get("line_level"))
+        set_combo(self.line_level, ll, mixed)
+        lc, mixed = self._values(lambda t, s: s.line_color)
+        self.line_btn.show_color(None if mixed else lc)
+
+        # Marcadores e nota
         for k, b in self.marker_btns.items():
             b.setChecked(k in topic.markers)
         if not (self.note.hasFocus() and self._note_tid == topic.id):
@@ -344,10 +639,10 @@ class FormatPanel(QWidget):
         lay = LAYOUTS.get(m.layout)
         self.skeleton_btn.setText(f"  {lay.label if lay else m.layout}   ⌄")
         self.skeleton_btn.setIcon(QIcon(thumbnail(m.layout, "_esqueleto", QSize(96, 56))))
-        key = (m.layout, tuple(sorted((k, v) for k, v in m.settings.items() if k != "background")))
+        key = (m.layout, tuple(sorted((k, str(v)) for k, v in m.settings.items() if k != "background")))
         if key != self._theme_thumbs_key:
             self._theme_thumbs_key = key
-            settings = {k: v for k, v in m.settings.items() if k in ("rainbow", "line_width")}
+            settings = {k: v for k, v in m.settings.items() if k in ("rainbow", "line_width", "branch_style")}
             for tkey, b in self.theme_btns.items():
                 b.setIcon(QIcon(thumbnail(m.layout, tkey, THEME_THUMB, settings)))
         for tkey, b in self.theme_btns.items():
@@ -355,14 +650,15 @@ class FormatPanel(QWidget):
         th = next((t for t in visible_themes() if t.key == m.theme), None)
         self.theme_name.setText(th.label if th else "")
         self.bg_btn.show_color(self.canvas.mscene.background_color)
-        for combo, value in ((self.font_combo, m.setting("font")), (self.line_combo, m.setting("line_width"))):
-            i = combo.findData(value)
-            if i < 0 and value:
-                combo.addItem(str(value), value)
-                i = combo.count() - 1
-            combo.setCurrentIndex(max(0, i))
+        set_combo(self.map_font, m.setting("font"))
+        set_combo(self.map_line, m.setting("line_width"))
+        col = style.chrome().text
+        mb = m.setting("branch_style")
+        self.map_branch.show_value(mb, branch_style_icon(mb or (lay.default_branch if lay else "colchete_curvo"), col))
         self.rainbow.setChecked(bool(m.setting("rainbow")))
         self.compact.setChecked(bool(m.setting("compact")))
+        self.fish_align.setChecked(bool(m.setting("fishbone_align")))
+        self.fish_align.setVisible(m.layout == "espinha_peixe")
 
     def _set_note_text(self, tid: Optional[str], text: str) -> None:
         if self._note_timer.isActive():
@@ -373,17 +669,61 @@ class FormatPanel(QWidget):
         self.note.blockSignals(False)
 
     # =============================================================== ações
-    def set_style(self, key: str, value) -> None:
+    def set_style(self, key: str, value, branch: bool = False) -> None:
+        self.set_styles({key: value}, branch)
+
+    def set_styles(self, values: dict, branch: bool = False) -> None:
         ids = self._ids()
-        if not ids or self.canvas is None:
+        if not ids or self.canvas is None or self._refreshing:
             return
         self.canvas.commit_edit(refocus=False)
-        self.canvas.doc.apply("Formatar tópico", lambda m: ops.set_style(m, ids, key, value), select=ids)
+        sel = list(ids)
+        if branch and self.branch_desc.isChecked():
+            ids = ops.with_descendants(self.canvas.doc.map, ids)
+        self.canvas.doc.apply("Formatar tópico", lambda m: ops.set_styles(m, ids, values), select=sel)
+
+    def _on_width(self) -> None:
+        v = self.width_spin.value()
+        self.set_style("width", v if v >= 40 else None)
+
+    def _on_size_typed(self) -> None:
+        txt = self.size_combo.currentText().strip().replace("px", "").strip()
+        if txt.lower() == "auto":
+            self.set_style("font_size", None)
+            return
+        try:
+            v = max(6, min(200, int(float(txt.replace(",", ".")))))
+        except ValueError:
+            self.refresh()
+            return
+        self.set_style("font_size", v)
+
+    def _on_font_activated(self, index: int) -> None:
+        self.set_style("font_family", self.font_combo.itemData(index))
+
+    def _on_font_typed(self) -> None:
+        txt = self.font_combo.currentText().strip()
+        i = self.font_combo.findText(txt, Qt.MatchFlag.MatchFixedString)
+        if i >= 0:
+            data = self.font_combo.itemData(i)
+            m = self.canvas.doc.map if self.canvas else None
+            t = m.find(self.canvas.current()) if m else None
+            if t is not None and t.style.get("font_family") == data:
+                return
+            self.set_style("font_family", data)
+        else:
+            self.refresh()
 
     def _reset_style(self) -> None:
         ids = self._ids()
         if ids:
-            self.canvas.doc.apply("Restaurar estilo", lambda m: ops.clear_style(m, ids), select=ids)
+            self.canvas.doc.apply("Repor estilo", lambda m: ops.clear_style(m, ids), select=ids)
+
+    def _apply_to_level(self) -> None:
+        cur = self.canvas.current() if self.canvas else None
+        if cur:
+            self.canvas.doc.apply("Aplicar estilo ao nível", lambda m: ops.apply_style_to_level(m, cur),
+                                  select=[cur])
 
     def _toggle_marker(self, key: str) -> None:
         ids = self._ids()

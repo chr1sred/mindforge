@@ -132,24 +132,61 @@ class TopicItem(QGraphicsItem):
         super().mouseDoubleClickEvent(e)
 
 
-class ConnectorItem(QGraphicsPathItem):
+class ConnectorItem(QGraphicsItem):
+    """Linhas de um grupo de ramos (ou de uma linha estrutural): traços + pontas."""
+
     def __init__(self, key: str):
         super().__init__()
         self.key = key
-        self.owner = ""
+        self.owner = ""                    # tópico "dono" (pai, no caso de grupos)
+        self.kid_ids: set[str] = set()     # filhos ligados por este item
+        self.is_group = False
+        self.strokes: list[tuple[QPainterPath, QPen]] = []
+        self.marks: list[tuple[QPainterPath, QColor, bool, QPen]] = []
+        self._rect = QRectF()
         self.setZValue(Z_CONNECTOR)
         self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
 
+    def set_content(self, strokes, marks) -> None:
+        self.prepareGeometryChange()
+        self.strokes = strokes
+        self.marks = marks
+        r = QRectF()
+        for path, pen in strokes:
+            w = pen.widthF()
+            r = r.united(path.boundingRect().adjusted(-w, -w, w, w))
+        for path, _c, _f, pen in marks:
+            w = pen.widthF()
+            r = r.united(path.boundingRect().adjusted(-w, -w, w, w))
+        self._rect = r
+        self.update()
+
+    def boundingRect(self) -> QRectF:
+        return self._rect
+
+    def visual_rect(self) -> QRectF:
+        return self._rect
+
     def shape(self) -> QPainterPath:
-        s = QPainterPathStroker()
-        s.setWidth(max(2.0, self.pen().widthF()))
-        return s.createStroke(self.path())
+        p = QPainterPath()
+        p.addRect(self._rect)
+        return p
 
     def paint(self, p: QPainter, option, widget=None) -> None:
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        p.setPen(self.pen())
         p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawPath(self.path())
+        for path, pen in self.strokes:
+            p.setPen(pen)
+            p.drawPath(path)
+        for path, color, filled, pen in self.marks:
+            if filled:
+                p.setPen(Qt.PenStyle.NoPen)
+                p.setBrush(color)
+                p.drawPath(path)
+                p.setBrush(Qt.BrushStyle.NoBrush)
+            else:
+                p.setPen(pen)
+                p.drawPath(path)
 
 
 def _clip_to_rect(center: QPointF, toward: QPointF, rect: QRectF) -> QPointF:
@@ -280,9 +317,11 @@ class EditorItem(QGraphicsTextItem):
         self.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
         self.document().setDocumentMargin(1)
 
-    def set_alignment(self, center: bool) -> None:
+    def set_alignment(self, align: str) -> None:
         opt = QTextOption(self.document().defaultTextOption())
-        opt.setAlignment(Qt.AlignmentFlag.AlignHCenter if center else Qt.AlignmentFlag.AlignLeft)
+        flag = {"center": Qt.AlignmentFlag.AlignHCenter, "right": Qt.AlignmentFlag.AlignRight}.get(
+            align, Qt.AlignmentFlag.AlignLeft)
+        opt.setAlignment(flag)
         opt.setWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
         self.document().setDefaultTextOption(opt)
 

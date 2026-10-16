@@ -16,14 +16,15 @@ from PySide6.QtWidgets import QGraphicsScene, QGraphicsSceneMouseEvent
 
 from mindforge.document import Document
 from mindforge.layouts import LayoutResult, Metric, get_layout
-from mindforge.layouts.base import spacing
+from mindforge.layouts.base import layout_options, spacing
 from mindforge.model.topic import Topic
 from mindforge.themes import branch_color, get_theme, resolve_style
 from mindforge.view.items import ConnectorItem, RelationItem, TopicItem
-from mindforge.view.painting import TopicVisual, build_visual, connector_path
+from mindforge.view.branches import draw_group
+from mindforge.view.painting import TopicVisual, build_visual, connector_path, pattern_pen
 
 SCENE_MARGIN = 2000.0
-LINE_WIDTH_FACTOR = {"fina": 0.65, "padrao": 1.0, "grossa": 1.6}
+LINE_WIDTH_FACTOR = {"fina": 0.7, "padrao": 1.0, "grossa": 1.5}
 COMPACT_SPACING = 0.6
 
 
@@ -70,16 +71,19 @@ class MindScene(QGraphicsScene):
 
         visuals: dict[str, TopicVisual] = {}
         metrics: dict[str, Metric] = {}
+        bg = self.background_color
+        hints = getattr(layout, "hints", {}) or {}
 
         def add_tree(top: Topic, top_level: str, color: Optional[str], main_palette: bool) -> None:
             stack: list[tuple[Topic, str, Optional[str]]] = [(top, top_level, color)]
             while stack:
                 t, level, col = stack.pop()
-                st = resolve_style(theme, level, col, t.style)
-                if lw != 1.0:
-                    st = replace(st, line_width=st.line_width * lw,
-                                 border_width=st.border_width * lw if st.shape == "sublinhado" else st.border_width)
+                st = resolve_style(theme, level, col, t.style, hints.get(level), bg)
+                if lw != 1.0 and "line_level" not in t.style:
+                    st = replace(st, line_width=st.line_width * lw)
                 vis = build_visual(overrides.get(t.id, t.text), st, t.markers, bool(t.note.strip()), family)
+                vis.branch = col or theme.mono
+                vis.level = level
                 if t.collapsed and t.children:
                     vis.collapsed_count = t.descendant_count()
                 visuals[t.id] = vis
@@ -94,7 +98,8 @@ class MindScene(QGraphicsScene):
         for k, f in enumerate(m.floating):
             add_tree(f, "floating", color_for(k + 3), False)
 
-        with spacing(COMPACT_SPACING if m.setting("compact") else 1.0):
+        with spacing(COMPACT_SPACING if m.setting("compact") else 1.0), \
+                layout_options(fishbone_align=bool(m.setting("fishbone_align"))):
             res = layout.compute(m.root, metrics)
             for f in m.floating:
                 res.merge(layout.compute_floating(f, metrics))
@@ -121,23 +126,66 @@ class MindScene(QGraphicsScene):
             item.setVisible(True)
             item.drop_target = False
 
-        # ---- conectores
+        # ---- linhas
         keys = set()
-        for c in res.connectors:
-            keys.add(c.key)
-            ci = self.conn_items.get(c.key)
+        index = {t.id: t for t in m.all_topics()}
+        default_branch = m.setting("branch_style")
+
+        def item_for(key: str) -> ConnectorItem:
+            keys.add(key)
+            ci = self.conn_items.get(key)
             if ci is None:
-                ci = ConnectorItem(c.key)
+                ci = ConnectorItem(key)
                 self.addItem(ci)
-                self.conn_items[c.key] = ci
+                self.conn_items[key] = ci
+            ci.setVisible(True)
+            return ci
+
+        def line_color(parent_id: str, child_id: str) -> str:
+            """Cor da linha pai → filho: escolha no filho > escolha no pai > cor do ramo."""
+            ct, pt = index.get(child_id), index.get(parent_id)
+            if ct is not None and ct.style.get("line_color"):
+                return ct.style["line_color"]
+            if pt is not None and pt.style.get("line_color"):
+                return pt.style["line_color"]
+            cv = visuals.get(child_id)
+            return cv.style.line_color if cv else "#8A8F98"
+
+        for g in res.groups:
+            pv = visuals.get(g.parent)
+            if pv is None:
+                continue
+            pst = pv.style
+            if g.style == "indent":
+                style = "indent"
+            else:
+                style = pst.branch_style or default_branch or g.style
+            ci = item_for(g.key)
+            ci.owner, ci.kid_ids, ci.is_group = g.parent, {k for k, _ in g.kids}, True
+            if pst.line_pattern == "nenhum":
+                ci.set_content([], [])
+                continue
+            colors = {cid: line_color(g.parent, cid) for cid, _ in g.kids}
+            pt = index.get(g.parent)
+            stub = pt.style.get("line_color") if pt is not None and pt.style.get("line_color") else None
+            if stub is None and g.parent != m.root.id:
+                stub = pst.line_color
+            width = pst.line_width
+            drawing = draw_group(style, g.direction, g.origin, g.kids, colors, stub, pst.line_end, width)
+            strokes = [(st.path, pattern_pen(QColor(st.color), width, pst.line_pattern)) for st in drawing.strokes]
+            marks = [(mk.path, QColor(mk.color), mk.filled,
+                      QPen(QColor(mk.color), width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap,
+                           Qt.PenJoinStyle.RoundJoin)) for mk in drawing.marks]
+            ci.set_content(strokes, marks)
+
+        for c in res.connectors:
+            ci = item_for(c.key)
             owner_vis = visuals.get(c.owner)
             color = owner_vis.style.line_color if owner_vis else "#8A8F98"
             width = (owner_vis.style.line_width if owner_vis else 1.6) * c.width
-            ci.owner = c.owner
-            ci.setPen(QPen(QColor(color), width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap,
-                           Qt.PenJoinStyle.RoundJoin))
-            ci.setPath(connector_path(c.kind, c.points))
-            ci.setVisible(True)
+            pattern = owner_vis.style.line_pattern if owner_vis and c.key.startswith("rib:") else "solido"
+            ci.owner, ci.kid_ids, ci.is_group = c.owner, set(), False
+            ci.set_content([(connector_path(c.kind, c.points), pattern_pen(QColor(color), width, pattern))], [])
         for k in list(self.conn_items):
             if k not in keys:
                 self.removeItem(self.conn_items.pop(k))
@@ -174,9 +222,8 @@ class MindScene(QGraphicsScene):
             if it.isVisible() and (ids is None or tid in ids):
                 rect = rect.united(it.mapRectToScene(it.visual_rect()))
         for ci in self.conn_items.values():
-            if ci.isVisible() and (ids is None or ci.owner in ids):
-                pen_w = ci.pen().widthF()
-                rect = rect.united(ci.path().boundingRect().adjusted(-pen_w, -pen_w, pen_w, pen_w))
+            if ci.isVisible() and (ids is None or ci.owner in ids) and not ci.visual_rect().isNull():
+                rect = rect.united(ci.visual_rect())
         for ri in self.rel_items.values():
             if ri.isVisible():
                 rect = rect.united(ri.visual_rect())
@@ -235,9 +282,12 @@ class MindScene(QGraphicsScene):
                         hidden.append(it)
                 root_id = self.doc.map.root.id
                 for ci in self.conn_items.values():
-                    # dentro do ramo, mantém só conectores cujo dono está no ramo
+                    # dentro do ramo, mantém só as linhas cujo dono está no ramo
                     # (a linha que liga o ramo ao pai fica de fora)
-                    keep = ci.owner in only_ids and not self._connects_outside(ci.owner, only_ids)
+                    if ci.is_group:
+                        keep = ci.owner in only_ids
+                    else:
+                        keep = ci.owner in only_ids and not self._connects_outside(ci.owner, only_ids)
                     if ci.owner == root_id and root_id not in only_ids:
                         keep = False
                     if not keep and ci.isVisible():
@@ -292,7 +342,7 @@ class MindScene(QGraphicsScene):
                 return
             d["active"] = True
             for ci in self.conn_items.values():
-                if ci.owner in d["moved"]:
+                if ci.owner in d["moved"] or (ci.kid_ids & d["moved"]):
                     ci.setVisible(False)
             for ri in self.rel_items.values():
                 ri.setVisible(False)

@@ -14,7 +14,7 @@ import math
 from typing import Optional
 
 from PySide6.QtCore import QEvent, QMimeData, QPointF, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QGuiApplication, QKeyEvent, QPainter, QPen, QTransform
+from PySide6.QtGui import QColor, QFont, QGuiApplication, QKeyEvent, QPainter, QPen, QTransform
 from PySide6.QtWidgets import (
     QGraphicsLineItem, QGraphicsView, QInputDialog, QMessageBox,
 )
@@ -232,7 +232,10 @@ class MindCanvas(QGraphicsView):
         ed = EditorItem(self, tid, topic.text)
         ed.setFont(item.vis.font)
         ed.setDefaultTextColor(QColor(item.vis.style.text_color))
-        ed.set_alignment(False)
+        ed.set_alignment("left")     # durante a digitação o texto cresce a partir da esquerda
+        f = QFont(item.vis.font)
+        f.setStrikeOut(item.vis.style.strike)
+        ed.setFont(f)
         ed.setPlainText(topic.text if replace_text is None else replace_text)
         self.mscene.addItem(ed)
         self.editor = ed

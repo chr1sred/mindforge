@@ -4,8 +4,8 @@ from __future__ import annotations
 import math
 
 from mindforge.layouts.base import (
-    H_GAP, V_GAP_MAIN, Connector, Layout, LayoutResult, Metric, center_on_root,
-    horizontal_subtree, indented_list, sp, vertical_subtree,
+    H_GAP, OPTIONS, V_GAP_MAIN, BranchGroup, Connector, Layout, LayoutResult, Metric,
+    center_on_root, horizontal_subtree, indented_list, sp, vertical_subtree,
 )
 from mindforge.model.topic import Topic
 
@@ -20,6 +20,7 @@ class MindMapLayout(Layout):
     """Mapa mental balanceado: ramos dos dois lados, sentido horário."""
     key = "mapa_mental"
     label = "Mapa mental"
+    default_branch = "chave"
     MAIN_GAP = 64.0
 
     def compute(self, root: Topic, M: dict[str, Metric]) -> LayoutResult:
@@ -30,7 +31,7 @@ class MindMapLayout(Layout):
         kids = root.visible_children()
         if not kids:
             return res
-        blocks = [horizontal_subtree(c, M, "right", "curve_h") for c in kids]
+        blocks = [horizontal_subtree(c, M, "right", self.default_branch) for c in kids]
         heights = []
         for b in blocks:
             y0, y1 = _bbox_y(b, M)
@@ -49,26 +50,23 @@ class MindMapLayout(Layout):
         def place(indices: list[int], side: str) -> None:
             if not indices:
                 return
-            col: list[LayoutResult] = []
-            for i in indices:
-                b = blocks[i] if side == "right" else horizontal_subtree(kids[i], M, "left", "curve_h")
-                col.append(b)
-            hs = [(_bbox_y(b, M)) for b in col]
+            col = [blocks[i] if side == "right" else horizontal_subtree(kids[i], M, "left", self.default_branch)
+                   for i in indices]
+            hs = [_bbox_y(b, M) for b in col]
             col_h = sum(y1 - y0 for y0, y1 in hs) + gap * (len(col) - 1)
             y = -col_h / 2
+            origin = (rm.w / 2, 0.0) if side == "right" else (-rm.w / 2, 0.0)
+            group = BranchGroup(f"g:{root.id}:{side}", root.id, side, origin, [], self.default_branch)
             for i, b, (y0, y1) in zip(indices, col, hs):
                 c = kids[i]
                 cm = M[c.id]
-                if side == "right":
-                    dx = rm.w / 2 + sp(self.MAIN_GAP)
-                else:
-                    dx = -rm.w / 2 - sp(self.MAIN_GAP) - cm.w
+                dx = rm.w / 2 + sp(self.MAIN_GAP) if side == "right" else -rm.w / 2 - sp(self.MAIN_GAP) - cm.w
                 b.translate(dx, y - y0)
                 cx, cy = b.pos[c.id]
-                p1 = (cx, cy + cm.ay) if side == "right" else (cx + cm.w, cy + cm.ay)
-                res.connectors.append(Connector(c.id, c.id, "curve_h", [(0.0, 0.0), p1]))
+                group.kids.append((c.id, (cx, cy + cm.ay) if side == "right" else (cx + cm.w, cy + cm.ay)))
                 res.merge(b)
                 y += (y1 - y0) + gap
+            res.groups.append(group)
 
         place(right, "right")
         place(left, "left")
@@ -77,17 +75,19 @@ class MindMapLayout(Layout):
 
 class LogicLayout(Layout):
     """Mapa lógico (diagrama de chaves) para a direita ou esquerda."""
+    default_branch = "colchete_curvo"
 
     def __init__(self, key: str, label: str, direction: str):
         self.key, self.label, self.direction = key, label, direction
-        self.floating_direction = direction if direction in ("right", "left") else "right"
+        self.floating_direction = direction
 
     def compute(self, root: Topic, M: dict[str, Metric]) -> LayoutResult:
-        res = horizontal_subtree(root, M, self.direction, "elbow_h", base_depth=0, hgap=sp(H_GAP + 6))
+        res = horizontal_subtree(root, M, self.direction, self.default_branch, base_depth=0,
+                                 hgap=sp(H_GAP + 6))
         return center_on_root(res, root, M)
 
     def compute_floating(self, top, M):
-        res = horizontal_subtree(top, M, self.direction, "elbow_h", base_depth=2)
+        res = horizontal_subtree(top, M, self.direction, self.default_branch, base_depth=2)
         px, py = top.pos or (0.0, 0.0)
         return res.translate(px, py)
 
@@ -96,15 +96,22 @@ class OrgChartLayout(Layout):
     key = "organograma"
     label = "Organograma"
     floating_direction = "down"
+    default_branch = "colchete_reto"
 
     def compute(self, root: Topic, M: dict[str, Metric]) -> LayoutResult:
-        return center_on_root(vertical_subtree(root, M), root, M)
+        return center_on_root(vertical_subtree(root, M, "down", self.default_branch), root, M)
+
+    def compute_floating(self, top, M):
+        res = vertical_subtree(top, M, "down", self.default_branch)
+        px, py = top.pos or (0.0, 0.0)
+        return res.translate(px, py)
 
 
 class TreeChartLayout(Layout):
     """Árvore: 1º nível lado a lado; demais níveis em lista indentada."""
     key = "arvore"
     label = "Árvore"
+    default_branch = "colchete_curvo"
     COL_GAP = 34.0
     ROW_GAP = 46.0
 
@@ -119,14 +126,15 @@ class TreeChartLayout(Layout):
             total = sum(w for _, w, _ in cols) + sp(self.COL_GAP) * (len(cols) - 1)
             x = -total / 2
             y = rm.h + sp(self.ROW_GAP)
-            p0 = (0.0, rm.h)
+            group = BranchGroup(f"g:{root.id}", root.id, "down", (0.0, rm.h), [], self.default_branch)
             for c, (col, w, _) in zip(kids, cols):
                 col.translate(x, y)
                 cm = M[c.id]
                 cx, cy = col.pos[c.id]
-                res.connectors.append(Connector(c.id, c.id, "elbow_v", [p0, (cx + cm.w / 2, cy)]))
+                group.kids.append((c.id, (cx + cm.w / 2, cy)))
                 res.merge(col)
                 x += w + sp(self.COL_GAP)
+            res.groups.append(group)
         return center_on_root(res, root, M)
 
 
@@ -163,10 +171,11 @@ class TimelineLayout(Layout):
                 lst.translate(lx, ly)
                 tx = x + self.INDENT / 2
                 ty = -m.h / 2 if side == "up" else m.h / 2
+                group = BranchGroup(f"g:{c.id}", c.id, side, (tx, ty), [], "indent")
                 for cc in c.visible_children():
                     ccx, ccy = lst.pos[cc.id]
-                    ay = ccy + M[cc.id].ay
-                    lst.connectors.append(Connector(cc.id, cc.id, "poly", [(tx, ty), (tx, ay), (ccx, ay)]))
+                    group.kids.append((cc.id, (ccx, ccy + M[cc.id].ay)))
+                lst.groups.append(group)
                 res.merge(lst)
                 right_extent = max(right_extent, lx + lw)
             cursor[side] = right_extent + sp(30.0)
@@ -179,25 +188,37 @@ class TimelineLayout(Layout):
 class FishboneLayout(Layout):
     """Espinha de peixe (Ishikawa) crescendo da esquerda para a direita.
 
-    O tema central (efeito) fica à esquerda; a coluna segue para a direita e
-    as causas ficam na ponta de espinhas inclinadas, alternando em cima e
-    embaixo. Todas as espinhas têm o mesmo comprimento, então os tópicos
-    principais ficam alinhados em duas fileiras (visual mais organizado).
+    * O tema central (efeito) fica à esquerda; a coluna segue para a direita
+      até depois do último elemento (sem "rabo").
+    * As espinhas formam PARES: a 1ª de cima e a 1ª de baixo saem do mesmo
+      ponto da coluna, e assim por diante.
+    * Cada espinha tem o comprimento do seu conteúdo (como no XMind). Com a
+      opção "fishbone_align", todas ficam com o comprimento da maior.
+    * As costelas (subtópicos) ligam no centro vertical do texto e são
+      empilhadas a partir da coluna. Cada bloco é posicionado pela sua borda
+      mais distante da coluna, então nenhum texto cruza a espinha.
 
     Implementação: calcula a versão "cabeça à direita" e espelha no fim.
     """
     key = "espinha_peixe"
     label = "Espinha de peixe"
     floating_direction = "right"
-    TAN = math.tan(math.radians(62))
-    RIB = 22.0          # comprimento da costela até o texto do subtópico
-    NEAR = 26.0         # folga entre a coluna e a primeira costela
-    END_GAP = 16.0      # folga entre a última costela e o tópico principal
-    SUB_GAP = 8.0
-    BONE_GAP = 40.0
-    START = 56.0        # distância do tema central até a primeira espinha
-    MIN_H = 70.0
-    TAIL = 36.0
+    default_branch = "chave"
+    TAN = math.tan(math.radians(60))
+    RIB = 18.0          # folga horizontal mínima entre a espinha e o bloco
+    NEAR = 22.0         # folga entre a coluna e a primeira costela
+    END_GAP = 14.0      # folga entre a última costela e o tópico principal
+    SUB_GAP = 10.0
+    PAIR_GAP = 36.0
+    START = 48.0        # distância do tema central até o primeiro par
+    MIN_H = 64.0
+    TAIL = 40.0
+    hints = {
+        "main": dict(shape="capsula", fill="$bg", border="$branch", border_width=2.0,
+                     text_color="$ink", weight=600),
+        "sub": dict(shape="nenhuma", fill=None, border=None, border_width=0.0, text_color="$deep",
+                    pad_x=4, pad_y=3, max_text_width=300),
+    }
 
     def compute(self, root: Topic, M: dict[str, Metric]) -> LayoutResult:
         rm = M[root.id]
@@ -206,58 +227,63 @@ class FishboneLayout(Layout):
         res.sides[root.id] = "left"
         kids = root.visible_children()
         prepared = []
-        need = sp(self.MIN_H)
         for i, c in enumerate(kids):
             blocks = []
             for sc in c.visible_children():
-                b = horizontal_subtree(sc, M, "left", "elbow_h", base_depth=3)
+                b = horizontal_subtree(sc, M, "left", self.default_branch, base_depth=3)
                 _, by0, _, by1 = b.bbox(M)
                 blocks.append((sc, b, by0, by1))
+            need = sp(self.MIN_H)
             if blocks:
                 total = sum(by1 - by0 for _, _, by0, by1 in blocks) + sp(self.SUB_GAP) * (len(blocks) - 1)
                 need = max(need, sp(self.NEAR) + total + sp(self.END_GAP))
-            prepared.append((c, "up" if i % 2 == 0 else "down", blocks))
-        H = need     # mesmo comprimento para todas as espinhas
-        cursor = {"up": -sp(self.START), "down": -sp(self.START)}
-        starts: list[float] = []
-        for c, side, blocks in prepared:
-            bone = self._bone(c, M, side, blocks, H)
-            bx0, _, bx1, _ = bone.bbox(M)
-            x0 = cursor[side] - max(0.0, bx1)
-            bone.translate(x0, 0.0)
-            res.merge(bone)
-            cursor[side] = x0 + bx0 - sp(self.BONE_GAP)
-            starts.append(x0)
-        end = (min(starts) - sp(self.TAIL)) if starts else -sp(self.START)
-        res.connectors.append(Connector("fb:spine", root.id, "line", [(0.0, 0.0), (end, 0.0)], 1.35))
+            prepared.append((c, "up" if i % 2 == 0 else "down", blocks, need))
+        if OPTIONS.get("fishbone_align") and prepared:
+            hmax = max(p[3] for p in prepared)
+            prepared = [(c, s, b, hmax) for c, s, b, _ in prepared]
+
+        cursor = -sp(self.START)
+        leftmost = cursor
+        for k in range(0, len(prepared), 2):
+            pair = prepared[k:k + 2]
+            bones = [self._bone(c, M, side, blocks, H) for c, side, blocks, H in pair]
+            x0 = min(b.bbox(M)[0] for b in bones)
+            x1 = max(max(0.0, b.bbox(M)[2]) for b in bones)
+            ox = cursor - x1
+            for b in bones:
+                b.translate(ox, 0.0)
+                res.merge(b)
+            leftmost = min(leftmost, ox + x0)
+            cursor = ox + x0 - sp(self.PAIR_GAP)
+        end = leftmost - sp(self.TAIL)
+        res.connectors.append(Connector("fb:spine", root.id, "line", [(0.0, 0.0), (end, 0.0)], 1.0))
         res.mirror_x(M)
         return center_on_root(res, root, M)
 
     def _bone(self, c: Topic, M: dict[str, Metric], side: str, blocks: list, H: float) -> LayoutResult:
-        """Espinha em coordenadas locais: começa em (0, 0) na coluna vertebral."""
+        """Espinha em coordenadas locais: começa em (0, 0) na coluna e sobe/desce para a esquerda."""
         cm = M[c.id]
         res = LayoutResult()
         res.sides[c.id] = side
+        sgn = -1.0 if side == "up" else 1.0
         dxb = H / self.TAN
-        bx = -dxb - cm.w / 2
-        by = -H - cm.h if side == "up" else H
-        res.pos[c.id] = (bx, by)
-        end = (-dxb, -H if side == "up" else H)
-        res.connectors.append(Connector(f"fb:{c.id}", c.id, "line", [(0.0, 0.0), end]))
-        # costelas agrupadas junto ao tópico principal; leitura de cima para baixo
-        total = sum(by1 - by0 for _, _, by0, by1 in blocks) + sp(self.SUB_GAP) * max(0, len(blocks) - 1)
-        d = max(sp(self.NEAR), H - sp(self.END_GAP) - total)
+        res.pos[c.id] = (-dxb - cm.w / 2, -H - cm.h if side == "up" else H)
+        res.connectors.append(Connector(f"fb:{c.id}", c.id, "line", [(0.0, 0.0), (-dxb, sgn * H)]))
+        # leitura de cima para baixo: na espinha de cima o 1º filho fica mais longe da coluna
         seq = list(reversed(blocks)) if side == "up" else blocks
+        d = sp(self.NEAR)
         for sc, b, by0, by1 in seq:
             bh = by1 - by0
             sm = M[sc.id]
             band_top = -(d + bh) if side == "up" else d
             root_top = band_top - by0
             ya = root_top + sm.ay
-            xb = -abs(ya) / self.TAN
-            root_x = xb - sp(self.RIB) - sm.w
+            far = d + bh                                  # borda do bloco mais distante da coluna
+            right_edge = -far / self.TAN - sp(self.RIB)   # a espinha nunca invade o bloco
+            root_x = right_edge - sm.w
             b.translate(root_x, root_top)
-            res.connectors.append(Connector(sc.id, sc.id, "line", [(xb, ya), (root_x + sm.w, ya)]))
+            xb = -abs(ya) / self.TAN
+            res.connectors.append(Connector(f"rib:{sc.id}", sc.id, "line", [(xb, ya), (right_edge, ya)]))
             res.merge(b)
             d += bh + sp(self.SUB_GAP)
         return res

@@ -33,7 +33,7 @@ a = Analysis(
     ["run_mindforge.py"],
     pathex=["."],
     binaries=[],
-    datas=[("assets/icon.png", "assets")],
+    datas=[("assets/icon.png", "assets"), ("assets/fonts", "assets/fonts")],
     hiddenimports=["PySide6.QtSvg"],
     hookspath=[],
     runtime_hooks=[],
