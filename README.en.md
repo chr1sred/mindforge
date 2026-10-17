@@ -4,6 +4,8 @@
 
 A mind map editor in Python + PySide6 (Qt), inspired by XMind.
 
+<img width="1588" height="1058" alt="screenshot-01_en" src="https://github.com/user-attachments/assets/3613f29f-2d08-452a-9438-248f9151a56b" />
+
 - Runs on **macOS, Windows and Linux**.
 - **7 structures**, **21 color themes in 6 variations** (plus your own palettes) and **7 branch styles**.
 - **Full keyboard editing** and **undo up to 100 levels**.
