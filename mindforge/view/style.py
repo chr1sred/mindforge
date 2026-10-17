@@ -181,6 +181,19 @@ def stylesheet(c: Chrome) -> str:
     QToolButton#ThemeCard {{ background: transparent; border: 2px solid transparent; border-radius: 8px; padding: 2px; }}
     QToolButton#ThemeCard:hover {{ border-color: {c.border}; }}
     QToolButton#ThemeCard:checked {{ border-color: {c.accent}; }}
+    QToolButton#PaletteItem {{ background: transparent; border: 2px solid transparent; border-radius: 9px;
+                               padding: 4px 4px 6px 4px; color: {c.text}; font-size: 13px; }}
+    QToolButton#PaletteItem:hover {{ background: {c.accent_soft}; }}
+    QToolButton#PaletteItem:checked {{ border-color: {c.accent}; }}
+    QToolButton#WheelButton {{ background: transparent; border: 2px solid transparent; border-radius: 26px;
+                               padding: 2px; }}
+    QToolButton#WheelButton:hover {{ border-color: {c.border}; }}
+    QToolButton#WheelButton:checked {{ border-color: {c.accent}; }}
+    QToolButton#ColorSlot {{ background: {c.card}; border: 1px dashed {c.border}; border-radius: 8px;
+                             color: {c.muted}; font-size: 18px; }}
+    QToolButton#ColorSlot:hover {{ border: 1px solid {c.accent}; }}
+    QLabel#PreviewBox {{ background: {c.card}; border: 1px solid {c.border}; border-radius: 10px; color: {c.muted}; }}
+    QLabel#Warning {{ color: #B4690E; }}
     QPushButton#LinkButton {{ background: transparent; border: none; color: {c.accent}; padding: 4px 0;
                               text-align: left; }}
     QPushButton#LinkButton:hover {{ text-decoration: underline; }}

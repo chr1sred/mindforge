@@ -14,8 +14,8 @@ from PySide6.QtWidgets import (
 )
 
 from mindforge.export import ExportOptions
+from mindforge.i18n import N_, tr
 from mindforge.templates import TEMPLATES, Template
-from mindforge.themes import visible_themes
 from mindforge.view.resources import render_thumbnail
 
 THUMB = QSize(220, 140)
@@ -24,10 +24,10 @@ THUMB = QSize(220, 140)
 class TemplateDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Novo mapa")
+        self.setWindowTitle(tr("Novo mapa"))
         self.resize(820, 600)
         lay = QVBoxLayout(self)
-        title = QLabel("<b>Escolha uma estrutura para começar</b>")
+        title = QLabel(tr("<b>Escolha uma estrutura para começar</b>"))
         lay.addWidget(title)
         self.list = QListWidget()
         self.list.setViewMode(QListWidget.ViewMode.IconMode)
@@ -42,16 +42,16 @@ class TemplateDialog(QDialog):
         self.desc.setStyleSheet("color: palette(mid);")
         lay.addWidget(self.desc)
         row = QHBoxLayout()
-        row.addWidget(QLabel("Tema:"))
+        row.addWidget(QLabel(tr("Tema de cores:")))
         self.theme = QComboBox()
-        for t in visible_themes():
-            self.theme.addItem(t.label, t.key)
+        self.theme.setIconSize(QSize(60, 14))
+        self._fill_themes()
         row.addWidget(self.theme)
         row.addStretch(1)
         lay.addLayout(row)
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        bb.button(QDialogButtonBox.StandardButton.Ok).setText("Criar")
-        bb.button(QDialogButtonBox.StandardButton.Cancel).setText("Cancelar")
+        bb.button(QDialogButtonBox.StandardButton.Ok).setText(tr("Criar"))
+        bb.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("Cancelar"))
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
@@ -60,24 +60,34 @@ class TemplateDialog(QDialog):
         self.list.currentItemChanged.connect(self._on_current)
         self._rebuild()
 
+    def _fill_themes(self) -> None:
+        from mindforge import colorthemes as ct
+        from mindforge.view.colorpanel import palette_name, palette_store, strip_pixmap
+        dp, _dv = ct.default_for_new_maps()
+        dpal = ct.palette_from_setting(dp)
+        self.theme.addItem(QIcon(strip_pixmap(dpal.colors, QSize(60, 14), 3)),
+                           tr("Padrão ({nome})", nome=palette_name(dpal)), None)
+        for p in (*palette_store().palettes, *ct.COLORIDO, *ct.CLASSICO):
+            self.theme.addItem(QIcon(strip_pixmap(p.colors, QSize(60, 14), 3)), palette_name(p), p.as_setting())
+
     def _rebuild(self) -> None:
         cur = self.list.currentRow()
-        theme = self.theme.currentData()
+        pal = self.theme.currentData()
         self.list.clear()
         for t in TEMPLATES:
-            pm = render_thumbnail(t.create(theme), THUMB)
-            name = t.name + ("  · exemplo" if t.sample else "")
+            pm = render_thumbnail(t.create(palette=pal, variant=None if pal is None else 0), THUMB)
+            name = tr(t.name) + (tr("  · exemplo") if t.sample else "")
             ic = QIcon(pm)
             ic.addPixmap(pm, QIcon.Mode.Selected)      # sem a "tinta" azul sobre a miniatura
             it = QListWidgetItem(ic, name)
             it.setData(Qt.ItemDataRole.UserRole, t.key)
-            it.setToolTip(t.description)
+            it.setToolTip(tr(t.description))
             self.list.addItem(it)
         self.list.setCurrentRow(max(0, cur))
 
     def _on_current(self, item: Optional[QListWidgetItem], _prev=None) -> None:
         t = self.selected_template()
-        self.desc.setText(t.description if t else "")
+        self.desc.setText(tr(t.description) if t else "")
 
     def selected_template(self) -> Optional[Template]:
         it = self.list.currentItem()
@@ -86,33 +96,36 @@ class TemplateDialog(QDialog):
         key = it.data(Qt.ItemDataRole.UserRole)
         return next((t for t in TEMPLATES if t.key == key), None)
 
-    def selected_theme(self) -> str:
+    def selected_palette(self) -> Optional[dict]:
+        """Paleta escolhida (None = tema padrão para novos mapas)."""
         return self.theme.currentData()
 
 
 class ExportDialog(QDialog):
-    def __init__(self, parent=None, has_selection: bool = False, initial_fmt: str = "png"):
+    def __init__(self, parent=None, has_selection: bool = False, initial_fmt: str = "png",
+                 dark_background: bool = False):
         super().__init__(parent)
-        self.setWindowTitle("Exportar mapa")
+        self.dark_background = dark_background
+        self.setWindowTitle(tr("Exportar mapa"))
         self.settings = QSettings()
         lay = QVBoxLayout(self)
 
-        fmt_box = QGroupBox("Formato")
+        fmt_box = QGroupBox(tr("Formato"))
         fl = QHBoxLayout(fmt_box)
         self.fmt_group = QButtonGroup(self)
         self.rb = {}
-        for i, (key, label) in enumerate((("png", "PNG (imagem)"), ("svg", "SVG (vetorial)"),
-                                          ("pdf", "PDF (documento)"))):
+        for i, (key, label) in enumerate((("png", tr("PNG (imagem)")), ("svg", tr("SVG (vetorial)")),
+                                          ("pdf", tr("PDF (documento)")))):
             r = QRadioButton(label)
             self.fmt_group.addButton(r, i)
             self.rb[key] = r
             fl.addWidget(r)
         lay.addWidget(fmt_box)
 
-        scope_box = QGroupBox("Conteúdo")
+        scope_box = QGroupBox(tr("Conteúdo"))
         sl = QVBoxLayout(scope_box)
-        self.scope_all = QRadioButton("Mapa inteiro")
-        self.scope_sel = QRadioButton("Somente o ramo selecionado")
+        self.scope_all = QRadioButton(tr("Mapa inteiro"))
+        self.scope_sel = QRadioButton(tr("Somente o ramo selecionado"))
         self.scope_all.setChecked(True)
         self.scope_sel.setEnabled(has_selection)
         sl.addWidget(self.scope_all)
@@ -123,28 +136,34 @@ class ExportDialog(QDialog):
         # PNG
         png = QWidget()
         pf = QFormLayout(png)
-        self.png_transparent = QCheckBox("Fundo transparente")
+        self.png_transparent = QCheckBox(tr("Fundo transparente"))
         self.png_scale = QComboBox()
         for s in (1, 2, 3, 4):
-            self.png_scale.addItem(f"{s}x" + ("  (recomendado)" if s == 2 else ""), s)
+            self.png_scale.addItem(f"{s}x" + (tr("  (recomendado)") if s == 2 else ""), s)
         pf.addRow(self.png_transparent)
-        pf.addRow("Resolução:", self.png_scale)
+        self.png_warn = self._dark_warning()
+        pf.addRow(self.png_warn)
+        self.png_transparent.toggled.connect(lambda on: self.png_warn.setVisible(on and self.dark_background))
+        pf.addRow(tr("Resolução:"), self.png_scale)
         # SVG
         svg = QWidget()
         sf = QFormLayout(svg)
-        self.svg_transparent = QCheckBox("Fundo transparente")
-        self.svg_curves = QCheckBox("Converter textos em curvas (portabilidade total; texto não editável)")
+        self.svg_transparent = QCheckBox(tr("Fundo transparente"))
+        self.svg_curves = QCheckBox(tr("Converter textos em curvas (portabilidade total; texto não editável)"))
         sf.addRow(self.svg_transparent)
+        self.svg_warn = self._dark_warning()
+        sf.addRow(self.svg_warn)
+        self.svg_transparent.toggled.connect(lambda on: self.svg_warn.setVisible(on and self.dark_background))
         sf.addRow(self.svg_curves)
         # PDF
         pdf = QWidget()
         df = QFormLayout(pdf)
         self.pdf_page = QComboBox()
-        for key, label in (("mapa", "Página do tamanho do mapa"), ("a4_paisagem", "A4 paisagem"),
-                           ("a4_retrato", "A4 retrato"), ("a3_paisagem", "A3 paisagem")):
+        for key, label in (("mapa", tr("Página do tamanho do mapa")), ("a4_paisagem", tr("A4 paisagem")),
+                           ("a4_retrato", tr("A4 retrato")), ("a3_paisagem", tr("A3 paisagem"))):
             self.pdf_page.addItem(label, key)
-        self.pdf_bg = QCheckBox("Incluir cor de fundo do tema")
-        df.addRow("Página:", self.pdf_page)
+        self.pdf_bg = QCheckBox(tr("Incluir cor de fundo do tema"))
+        df.addRow(tr("Página:"), self.pdf_page)
         df.addRow(self.pdf_bg)
         for w in (png, svg, pdf):
             self.stack.addWidget(w)
@@ -154,12 +173,12 @@ class ExportDialog(QDialog):
         self.margin = QSpinBox()
         self.margin.setRange(0, 400)
         self.margin.setSuffix(" px")
-        mrow.addRow("Margem:", self.margin)
+        mrow.addRow(tr("Margem:"), self.margin)
         lay.addLayout(mrow)
 
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        bb.button(QDialogButtonBox.StandardButton.Ok).setText("Exportar…")
-        bb.button(QDialogButtonBox.StandardButton.Cancel).setText("Cancelar")
+        bb.button(QDialogButtonBox.StandardButton.Ok).setText(tr("Exportar…"))
+        bb.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("Cancelar"))
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
@@ -205,6 +224,19 @@ class ExportDialog(QDialog):
             pdf_background=self.pdf_bg.isChecked(),
         )
 
+    def _dark_warning(self) -> QLabel:
+        lab = QLabel(tr("⚠ Este mapa tem fundo escuro e textos claros: com fundo transparente, eles podem "
+                        "sumir em documentos brancos. Desmarque para incluir o fundo."))
+        lab.setWordWrap(True)
+        lab.setObjectName("Warning")
+        lab.setVisible(False)
+        return lab
+
+    def showEvent(self, e) -> None:
+        super().showEvent(e)
+        self.png_warn.setVisible(self.png_transparent.isChecked() and self.dark_background)
+        self.svg_warn.setVisible(self.svg_transparent.isChecked() and self.dark_background)
+
     def only_selection(self) -> bool:
         return self.scope_sel.isChecked() and self.scope_sel.isEnabled()
 
@@ -212,9 +244,9 @@ class ExportDialog(QDialog):
 def ask_export_path(parent, fmt: str, base_name: str) -> Optional[str]:
     settings = QSettings()
     folder = settings.value("export/dir", os.path.expanduser("~"))
-    filters = {"png": "Imagem PNG (*.png)", "svg": "Imagem SVG (*.svg)", "pdf": "Documento PDF (*.pdf)"}
-    safe = "".join(c for c in base_name if c not in '\\/:*?"<>|\n').strip()[:60] or "mapa"
-    path, _ = QFileDialog.getSaveFileName(parent, "Exportar como", os.path.join(folder, f"{safe}.{fmt}"),
+    filters = {"png": tr("Imagem PNG (*.png)"), "svg": tr("Imagem SVG (*.svg)"), "pdf": tr("Documento PDF (*.pdf)")}
+    safe = "".join(c for c in base_name if c not in '\\/:*?"<>|\n').strip()[:60] or tr("mapa")
+    path, _ = QFileDialog.getSaveFileName(parent, tr("Exportar como"), os.path.join(folder, f"{safe}.{fmt}"),
                                           filters[fmt])
     if not path:
         return None
@@ -227,50 +259,93 @@ def ask_export_path(parent, fmt: str, base_name: str) -> Optional[str]:
 MOD = "⌘" if sys.platform == "darwin" else "Ctrl"
 SHIFT = "⇧" if sys.platform == "darwin" else "Shift"
 
+# (ação, tecla). Teclas usam {mod}/{shift}; textos entre as teclas também são traduzidos.
 SHORTCUTS = [
-    ("Novo subtópico (filho)", "Tab"),
-    ("Novo tópico irmão (abaixo)", "Enter"),
-    ("Novo tópico irmão (acima)", f"{SHIFT}+Enter"),
-    ("Inserir tópico pai", f"{MOD}+Enter"),
-    ("Editar texto do tópico", "F2, Espaço ou comece a digitar"),
-    ("Quebra de linha durante a edição", f"{SHIFT}+Enter"),
-    ("Confirmar / cancelar edição", "Enter / Esc"),
-    ("Excluir tópico (e ramo)", "Delete / Backspace"),
-    ("Navegar entre tópicos", "← ↑ → ↓"),
-    ("Mover tópico entre irmãos", f"{MOD}+↑ / {MOD}+↓"),
-    ("Recolher / expandir ramo", f"{MOD}+/"),
-    ("Desfazer / Refazer", f"{MOD}+Z / {MOD}+{SHIFT}+Z ou {MOD}+Y"),
-    ("Copiar / Recortar / Colar ramo", f"{MOD}+C / {MOD}+X / {MOD}+V"),
-    ("Duplicar tópico", f"{MOD}+D"),
-    ("Selecionar todos os tópicos", f"{MOD}+A"),
-    ("Relação entre tópicos", f"{MOD}+R, depois clique no destino"),
-    ("Tópico flutuante", "Duplo clique no fundo"),
-    ("Novo / Abrir / Salvar / Salvar como", f"{MOD}+N / {MOD}+O / {MOD}+S / {MOD}+{SHIFT}+S"),
-    ("Exportar", f"{MOD}+E"),
-    ("Buscar", f"{MOD}+F"),
-    ("Zoom + / − / ajustar / 100%", f"{MOD}+= / {MOD}+- / {MOD}+0 / {MOD}+1"),
-    ("Zoom com mouse / trackpad", f"{MOD}+roda ou pinça"),
-    ("Mover a tela", "Espaço+arrastar, botão do meio ou rolagem"),
+    (N_("Novo subtópico (filho)"), "Tab"),
+    (N_("Novo tópico irmão (abaixo)"), "Enter"),
+    (N_("Novo tópico irmão (acima)"), "{shift}+Enter"),
+    (N_("Inserir tópico pai"), "{mod}+Enter"),
+    (N_("Editar texto do tópico"), N_("F2, Espaço ou comece a digitar")),
+    (N_("Quebra de linha durante a edição"), "{shift}+Enter"),
+    (N_("Confirmar / cancelar edição"), "Enter / Esc"),
+    (N_("Excluir tópico (e ramo)"), "Delete / Backspace"),
+    (N_("Navegar entre tópicos"), "← ↑ → ↓"),
+    (N_("Mover tópico entre irmãos"), "{mod}+↑ / {mod}+↓"),
+    (N_("Recolher / expandir ramo"), N_("{mod}+/ ou clique no ⊖ / no número")),
+    (N_("Expandir o ramo inteiro"), N_("Alt+clique no número")),
+    (N_("Desfazer / Refazer"), N_("{mod}+Z / {mod}+{shift}+Z ou {mod}+Y")),
+    (N_("Copiar / Recortar / Colar ramo"), "{mod}+C / {mod}+X / {mod}+V"),
+    (N_("Duplicar tópico"), "{mod}+D"),
+    (N_("Selecionar todos os tópicos"), "{mod}+A"),
+    (N_("Relação entre tópicos"), N_("{mod}+R, depois clique no destino")),
+    (N_("Tópico flutuante"), N_("Duplo clique no fundo")),
+    (N_("Novo / Abrir / Salvar / Salvar como"), "{mod}+N / {mod}+O / {mod}+S / {mod}+{shift}+S"),
+    (N_("Exportar"), "{mod}+E"),
+    (N_("Buscar"), "{mod}+F"),
+    (N_("Zoom + / − / ajustar / 100%"), "{mod}+= / {mod}+- / {mod}+0 / {mod}+1"),
+    (N_("Zoom com mouse / trackpad"), N_("{mod}+roda ou pinça")),
+    (N_("Mover a tela"), N_("Botão direito+arrastar, Espaço+arrastar, botão do meio ou rolagem")),
 ]
+
+
+def shortcut_rows() -> list[tuple[str, str]]:
+    """Linhas da tabela de atalhos já traduzidas e com as teclas do sistema."""
+    return [(tr(a), tr(k).format(mod=MOD, shift=SHIFT)) for a, k in SHORTCUTS]
 
 
 class ShortcutsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Atalhos de teclado")
+        self.setWindowTitle(tr("Atalhos de teclado"))
         self.resize(620, 640)
         lay = QVBoxLayout(self)
         table = QTableWidget(len(SHORTCUTS), 2)
-        table.setHorizontalHeaderLabels(["Ação", "Atalho"])
+        table.setHorizontalHeaderLabels([tr("Ação"), tr("Atalho")])
         table.verticalHeader().setVisible(False)
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        for i, (a, k) in enumerate(SHORTCUTS):
+        for i, (a, k) in enumerate(shortcut_rows()):
             table.setItem(i, 0, QTableWidgetItem(a))
             table.setItem(i, 1, QTableWidgetItem(k))
         table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         lay.addWidget(table)
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        bb.button(QDialogButtonBox.StandardButton.Close).setText("Fechar")
+        bb.button(QDialogButtonBox.StandardButton.Close).setText(tr("Fechar"))
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
+
+
+class SettingsDialog(QDialog):
+    """Ajustes do aplicativo. Hoje: idioma da interface (troca imediata)."""
+
+    def __init__(self, current: str, parent=None):
+        super().__init__(parent)
+        from mindforge.i18n import LANGUAGES
+        self.setWindowTitle(tr("Ajustes"))
+        self.setMinimumWidth(360)
+        lay = QVBoxLayout(self)
+        box = QGroupBox("Idioma / Language")
+        bl = QVBoxLayout(box)
+        self._radios: dict[str, QRadioButton] = {}
+        for code, label in LANGUAGES.items():
+            rb = QRadioButton(label)
+            rb.setChecked(code == current)
+            bl.addWidget(rb)
+            self._radios[code] = rb
+        lay.addWidget(box)
+        note = QLabel(tr("A interface muda na hora. O conteúdo dos mapas não é traduzido."))
+        note.setWordWrap(True)
+        note.setObjectName("Muted")
+        lay.addWidget(note)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        bb.button(QDialogButtonBox.StandardButton.Ok).setText(tr("OK"))
+        bb.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("Cancelar"))
+        bb.accepted.connect(self.accept)
+        bb.rejected.connect(self.reject)
+        lay.addWidget(bb)
+
+    def selected_language(self) -> str:
+        for code, rb in self._radios.items():
+            if rb.isChecked():
+                return code
+        return next(iter(self._radios))

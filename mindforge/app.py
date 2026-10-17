@@ -5,12 +5,14 @@ import os
 import sys
 from typing import Optional
 
-from PySide6.QtCore import QEvent, QSettings, QStandardPaths, Qt, QTimer
+from PySide6.QtCore import QEvent, QLibraryInfo, QSettings, QStandardPaths, Qt, QTimer, QTranslator
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from mindforge import APP_NAME, ORG_DOMAIN, ORG_NAME, __version__
+from mindforge import i18n
 from mindforge.document import Document
+from mindforge.i18n import tr
 from mindforge.storage import MindForgeFileError, RecoveryManager, load_map
 from mindforge.templates import TEMPLATES
 
@@ -25,6 +27,8 @@ class MindForgeApp(QApplication):
         self.setOrganizationName(ORG_NAME)
         self.setOrganizationDomain(ORG_DOMAIN)
         self.setApplicationVersion(__version__)
+        self._qt_translator: Optional[QTranslator] = None
+        self._apply_language(self.initial_language(), persist=False)
         from mindforge.view import style
         from mindforge.view.resources import app_icon
         style.apply(self)
@@ -35,6 +39,13 @@ class MindForgeApp(QApplication):
             pass
         base = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
         self.recovery = RecoveryManager(os.path.join(base, "recuperacao"))
+        # "A Minha Cor" e o tema padrão para novos mapas
+        from mindforge import colorthemes
+        from mindforge.storage.palettes import PaletteStore
+        self.palettes = PaletteStore(os.path.join(base, "temas.json"))
+        if self.palettes.default:
+            colorthemes.set_default_for_new_maps(self.palettes.default["color_theme"],
+                                                 self.palettes.default["color_variant"])
         self.windows: list = []
         self._pending_open: list[str] = []
         self._started = False
@@ -45,20 +56,66 @@ class MindForgeApp(QApplication):
         for w in self.windows:
             w.refresh_chrome()
 
+    # -------------------------------------------------------------- idioma
+    @staticmethod
+    def initial_language() -> str:
+        """Idioma salvo em Ajustes; na primeira execução, o do sistema."""
+        forced = os.environ.get("MINDFORGE_IDIOMA", "")
+        if forced in i18n.LANGUAGES:
+            return forced
+        saved = QSettings().value("ui/language", "")
+        return saved if saved in i18n.LANGUAGES else i18n.system_language()
+
+    def _apply_language(self, code: str, persist: bool = True) -> None:
+        i18n.set_language(code)
+        if persist:
+            QSettings().setValue("ui/language", i18n.language())
+        # textos padrão do Qt (Sim/Não, diálogos de arquivo, menu de contexto de campos de texto)
+        if self._qt_translator is not None:
+            self.removeTranslator(self._qt_translator)
+            self._qt_translator = None
+        if i18n.language() == "pt_BR":
+            tr_ = QTranslator(self)
+            folder = QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath)
+            if tr_.load("qtbase_pt_BR", folder):
+                self.installTranslator(tr_)
+                self._qt_translator = tr_
+
+    def set_language(self, code: str) -> None:
+        """Troca o idioma na hora: recria as janelas mantendo documentos e histórico de desfazer."""
+        if code == i18n.language() or code not in i18n.LANGUAGES:
+            return
+        self._apply_language(code)
+        active = self.active_main_window()
+        for old in list(self.windows):
+            st = old.view_state()
+            doc = old.doc
+            w = self.new_window(doc, fit=False)
+            w.restore_view_state(st)
+            old.close_for_rebuild()
+            if st["full"]:
+                w.showFullScreen()
+            if old is active:
+                active = w
+        if active is not None:
+            active.raise_()
+            active.activateWindow()
+
     # ------------------------------------------------------------- janelas
-    def new_window(self, doc: Optional[Document] = None):
+    def new_window(self, doc: Optional[Document] = None, fit: bool = True):
         from mindforge.view.main_window import MainWindow
         doc = doc or Document()
         w = MainWindow(self, doc)
         doc.setParent(w)
         self.windows.append(w)
-        if self.windows[:-1]:
+        if fit and self.windows[:-1]:
             prev = self.windows[-2]
             w.move(prev.pos().x() + 30, prev.pos().y() + 30)
         w.show()
         w.raise_()
         w.activateWindow()
-        QTimer.singleShot(50, w.canvas.zoom_fit)
+        if fit:
+            QTimer.singleShot(50, w.canvas.zoom_fit)
         return w
 
     def window_closed(self, w) -> None:
@@ -75,7 +132,8 @@ class MindForgeApp(QApplication):
         if not dlg.exec():
             return
         t = dlg.selected_template() or TEMPLATES[0]
-        self._open_doc(Document(t.create(dlg.selected_theme())))
+        pal = dlg.selected_palette()
+        self._open_doc(Document(t.create(palette=pal, variant=None if pal is None else 0)))
 
     def _open_doc(self, doc: Document):
         """Reaproveita a janela atual se ela estiver vazia e sem alterações."""
@@ -97,8 +155,9 @@ class MindForgeApp(QApplication):
         try:
             m = load_map(path)
         except MindForgeFileError as exc:
-            QMessageBox.warning(parent or self.active_main_window(), "Abrir mapa",
-                                f"Não foi possível abrir “{os.path.basename(path)}”.\n\n{exc}")
+            QMessageBox.warning(parent or self.active_main_window(), tr("Abrir mapa"),
+                                tr("Não foi possível abrir “{nome}”.\n\n{erro}",
+                                   nome=os.path.basename(path), erro=exc))
             self.remove_recent(path)
             return None
         self.add_recent(path)
@@ -132,12 +191,12 @@ class MindForgeApp(QApplication):
         entries = self.recovery.entries()
         if not entries:
             return False
-        names = "\n".join(f"• {e.title or 'Sem título'}" + (f"  ({os.path.basename(e.original_path)})"
+        names = "\n".join(f"• {e.title or tr('Sem título')}" + (f"  ({os.path.basename(e.original_path)})"
                                                             if e.original_path else "") for e in entries)
         ans = QMessageBox.question(
             None, APP_NAME,
-            "O MindForge foi fechado inesperadamente e há mapas não salvos:\n\n"
-            f"{names}\n\nDeseja recuperá-los?",
+            tr("O {app} foi fechado inesperadamente e há mapas não salvos:\n\n{nomes}\n\n"
+               "Deseja recuperá-los?", app=APP_NAME, nomes=names),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes)
         if ans != QMessageBox.StandardButton.Yes:

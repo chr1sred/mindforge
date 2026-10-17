@@ -301,7 +301,7 @@ def indented_list(t: Topic, M: dict[str, Metric], include_root: bool = True,
         n, x = stack.pop()
         m = M[n.id]
         res.pos[n.id] = (x, y)
-        res.sides[n.id] = "down"
+        res.sides[n.id] = "right"        # botão de recolher ao lado (embaixo colidiria com o irmão)
         maxx = max(maxx, x + m.w)
         y += m.h + gap
         for c in reversed(n.visible_children()):

@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import math
+import sys
+import time
 from typing import TYPE_CHECKING, Optional
 
-from PySide6.QtCore import QEvent, QPointF, QRectF, Qt
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer
 from PySide6.QtGui import (
     QBrush, QColor, QFont, QFontMetricsF, QKeyEvent, QPainter, QPainterPath,
     QPainterPathStroker, QPen, QTextOption,
@@ -12,8 +14,9 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsPathItem, QGraphicsTextItem, QStyleOptionGraphicsItem
 
 from mindforge.view.painting import (
-    BADGE_R, TopicVisual, badge_center, default_family, paint_badge, paint_topic,
+    TopicVisual, badge_center, badge_radius, default_family, paint_badge, paint_control, paint_topic,
 )
+from mindforge.i18n import ntr, tr
 
 if TYPE_CHECKING:
     from mindforge.view.scene import MindScene
@@ -38,6 +41,8 @@ class TopicItem(QGraphicsItem):
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setAcceptHoverEvents(True)
         self.setZValue(Z_TOPIC)
+        self.linger_until = 0.0              # ⊖ continua visível um instante depois que o mouse sai
+        self.handle = CollapseHandle(self)
 
     def mind_scene(self) -> "MindScene":
         return self.scene()  # type: ignore[return-value]
@@ -46,6 +51,8 @@ class TopicItem(QGraphicsItem):
     def set_visual(self, vis: TopicVisual) -> None:
         self.prepareGeometryChange()
         self.vis = vis
+        self.handle.geometry_changed()
+        self.update_handle()
         self.update()
 
     def boundingRect(self) -> QRectF:
@@ -61,22 +68,45 @@ class TopicItem(QGraphicsItem):
         """Área realmente desenhada (para exportação), em coordenadas do item."""
         r = self.box_rect()
         if self.vis and self.vis.collapsed_count:
-            c = badge_center(self.vis)
-            r = r.united(QRectF(c.x() - BADGE_R - 1, c.y() - BADGE_R - 1, 2 * BADGE_R + 2, 2 * BADGE_R + 2))
+            r = r.united(self.badge_rect())
         return r
 
+    def has_toggle(self) -> bool:
+        return bool(self.vis and not self.is_root and (self.vis.collapsed_count or self.vis.has_children))
+
+    def badge_rect(self, grow: float = 1.0) -> QRectF:
+        c = badge_center(self.vis)
+        r = badge_radius(self.vis) + grow
+        return QRectF(c.x() - r, c.y() - r, 2 * r, 2 * r)
+
     def shape(self) -> QPainterPath:
+        # Só a caixa. O controle de recolher é um item próprio (CollapseHandle), com área de clique
+        # própria; misturar as duas áreas num mesmo caminho criava "buracos" sem clique no tópico.
         p = QPainterPath()
         p.addRect(self.box_rect())
-        if self.vis and self.vis.collapsed_count:
-            p.addEllipse(badge_center(self.vis), BADGE_R + 2, BADGE_R + 2)
         return p
 
-    def badge_hit(self, pos: QPointF) -> bool:
-        if not self.vis or not self.vis.collapsed_count:
+    # ---------------------------------------------------- controle ⊖ / número
+    def handle_wanted(self) -> bool:
+        """O controle aparece com o ramo recolhido, ou com o tópico sob o mouse/selecionado."""
+        if not self.has_toggle():
             return False
-        c = badge_center(self.vis)
-        return math.hypot(pos.x() - c.x(), pos.y() - c.y()) <= BADGE_R + 3
+        if self.vis.collapsed_count:
+            return True
+        return (self.hover or self.isSelected() or self.handle.hovered or self.handle.pressed
+                or time.monotonic() < self.linger_until)
+
+    def update_handle(self) -> None:
+        want = self.handle_wanted()
+        if self.handle.isVisible() != want:
+            self.handle.setVisible(want)
+        self.handle.refresh_tooltip()
+        self.handle.update()
+
+    def itemChange(self, change, value):
+        if change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
+            self.update_handle()
+        return super().itemChange(change, value)
 
     # ----------------------------------------------------------------- pintura
     def paint(self, p: QPainter, option: QStyleOptionGraphicsItem, widget=None) -> None:
@@ -87,8 +117,9 @@ class TopicItem(QGraphicsItem):
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         p.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
         paint_topic(p, self.vis, text_as_paths=bool(sc and sc.text_as_paths), hide_text=self.editing)
-        if self.vis.collapsed_count:
-            paint_badge(p, self.vis, sc.background_color if sc else "#FFFFFF")
+        bg = sc.background_color if sc else "#FFFFFF"
+        if self.vis.collapsed_count and not self.is_root:
+            paint_badge(p, self.vis, bg)
         if export:
             return
         sel = QColor(sc.selection_color if sc else "#2F80ED")
@@ -111,18 +142,17 @@ class TopicItem(QGraphicsItem):
     # ------------------------------------------------------------------ eventos
     def hoverEnterEvent(self, e) -> None:
         self.hover = True
+        self.update_handle()
         self.update()
 
     def hoverLeaveEvent(self, e) -> None:
         self.hover = False
+        if self.has_toggle() and not self.vis.collapsed_count:
+            self.linger_until = time.monotonic() + HANDLE_LINGER_S
+            tid, sc = self.tid, self.scene()
+            QTimer.singleShot(int(HANDLE_LINGER_S * 1000) + 20, lambda: _refresh_handle(sc, tid))
+        self.update_handle()
         self.update()
-
-    def mousePressEvent(self, e) -> None:
-        if e.button() == Qt.MouseButton.LeftButton and self.badge_hit(e.pos()):
-            self.mind_scene().collapse_requested.emit(self.tid)
-            e.accept()
-            return
-        super().mousePressEvent(e)
 
     def mouseDoubleClickEvent(self, e) -> None:
         if e.button() == Qt.MouseButton.LeftButton:
@@ -130,6 +160,163 @@ class TopicItem(QGraphicsItem):
             e.accept()
             return
         super().mouseDoubleClickEvent(e)
+
+
+HANDLE_LINGER_S = 0.25        # tempo que o ⊖ espera antes de sumir (caminho do tópico até ele)
+HANDLE_MIN_SCREEN_R = 8.0     # raio mínimo da área de clique, em pixels de tela (≈ 16 px de diâmetro)
+HANDLE_MAX_HIT_R = 20.0       # teto da área de clique, em unidades do mapa (não invade os filhos)
+
+
+def _refresh_handle(scene, tid: str) -> None:
+    try:
+        it = scene.topic_items.get(tid) if scene is not None else None
+    except RuntimeError:        # cena já destruída
+        return
+    if it is not None:
+        it.update_handle()
+
+
+class CollapseHandle(QGraphicsItem):
+    """Controle de recolher/expandir de um tópico (⊖ ou número), no padrão do XMind.
+
+    É um item filho do tópico, com área de clique, hover, cursor e dica próprios:
+      - clique no ⊖ recolhe; clique no número expande um nível; Alt+clique expande tudo;
+      - duplo clique não edita, não cria tópico flutuante e não alterna de volta;
+      - não é selecionável e não inicia arraste do tópico.
+    Usa as mesmas coordenadas do tópico (pos = 0,0 dentro dele).
+    """
+
+    def __init__(self, topic: "TopicItem"):
+        super().__init__(topic)
+        self.topic = topic
+        self.hovered = False
+        self.pressed = False
+        self.setAcceptHoverEvents(True)
+        self.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setVisible(False)
+        self._tip = ""
+        self._last_toggle = 0.0
+
+    # -------------------------------------------------------------- geometria
+    def geometry_changed(self) -> None:
+        self.prepareGeometryChange()
+        self.hovered = False
+        self.pressed = False
+
+    def boundingRect(self) -> QRectF:
+        vis = self.topic.vis
+        if vis is None or not self.topic.has_toggle():
+            return QRectF()
+        c = badge_center(vis)
+        r = HANDLE_MAX_HIT_R + 2
+        return QRectF(c.x() - r, c.y() - r, 2 * r, 2 * r)
+
+    def hit_radius(self) -> float:
+        vis = self.topic.vis
+        r = badge_radius(vis) + 3.0
+        sc = self.scene()
+        scale = getattr(sc, "view_scale", 1.0) if sc is not None else 1.0
+        if scale > 0:
+            r = max(r, HANDLE_MIN_SCREEN_R / scale)
+        return min(r, HANDLE_MAX_HIT_R)
+
+    def shape(self) -> QPainterPath:
+        p = QPainterPath()
+        vis = self.topic.vis
+        if vis is None or not self.topic.has_toggle():
+            return p
+        c = badge_center(vis)
+        r = self.hit_radius()
+        p.addEllipse(c, r, r)
+        # nunca "rouba" cliques da caixa do próprio tópico (zoom baixo aumenta a área)
+        box = QPainterPath()
+        box.addRect(self.topic.box_rect())
+        return p.subtracted(box)
+
+    # ----------------------------------------------------------------- pintura
+    def paint(self, p: QPainter, option: QStyleOptionGraphicsItem, widget=None) -> None:
+        vis = self.topic.vis
+        sc = self.scene()
+        if vis is None or (sc is not None and sc.export_mode):
+            return
+        state = "pressed" if self.pressed else ("hover" if self.hovered else "normal")
+        if vis.collapsed_count and state == "normal":
+            return          # o número em estado normal é desenhado pelo tópico (e sai na exportação)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+        paint_control(p, vis, sc.background_color if sc else "#FFFFFF", state)
+
+    def refresh_tooltip(self) -> None:
+        vis = self.topic.vis
+        if vis is None:
+            return
+        if vis.collapsed_count:
+            tip = ntr("Expandir {n} tópico · Alt+clique: expandir tudo",
+                      "Expandir {n} tópicos · Alt+clique: expandir tudo", vis.collapsed_count)
+        else:
+            tip = tr("Recolher (Ctrl+/)")
+            if sys.platform == "darwin":
+                tip = tip.replace("Ctrl+", "⌘")
+        if tip != self._tip:
+            self._tip = tip
+            self.setToolTip(tip)
+
+    # ------------------------------------------------------------------ eventos
+    def hoverEnterEvent(self, e) -> None:
+        self.hovered = True
+        self.update()
+
+    def hoverLeaveEvent(self, e) -> None:
+        self.hovered = False
+        self.topic.linger_until = time.monotonic() + HANDLE_LINGER_S
+        sc, tid = self.scene(), self.topic.tid
+        QTimer.singleShot(int(HANDLE_LINGER_S * 1000) + 20, lambda: _refresh_handle(sc, tid))
+        self.update()
+
+    def mousePressEvent(self, e) -> None:
+        if e.button() != Qt.MouseButton.LeftButton:
+            e.ignore()
+            return
+        sc = self.scene()
+        if sc is not None:
+            sc.last_handle_click = time.monotonic()
+        from PySide6.QtWidgets import QApplication
+        if time.monotonic() - self._last_toggle < QApplication.doubleClickInterval() / 1000.0:
+            e.accept()      # 2º clique de um duplo clique: alterna uma vez só
+            return
+        self.pressed = True
+        sc = self.scene()
+        if sc is not None:
+            sc.last_handle_click = time.monotonic()
+        self.update()
+        e.accept()          # não seleciona nem arrasta o tópico
+
+    def mouseMoveEvent(self, e) -> None:
+        inside = self.shape().contains(e.pos())
+        if inside != self.hovered:
+            self.hovered = inside
+            self.update()
+        e.accept()
+
+    def mouseReleaseEvent(self, e) -> None:
+        was = self.pressed
+        self.pressed = False
+        self.update()
+        e.accept()
+        if not was or e.button() != Qt.MouseButton.LeftButton or not self.shape().contains(e.pos()):
+            return          # soltou fora do controle: cancela, como um botão comum
+        sc = self.topic.mind_scene()
+        if sc is None:
+            return
+        self._last_toggle = time.monotonic()
+        if self.topic.vis.collapsed_count and e.modifiers() & Qt.KeyboardModifier.AltModifier:
+            sc.expand_all_requested.emit(self.topic.tid)
+        else:
+            sc.collapse_requested.emit(self.topic.tid)
+
+    def mouseDoubleClickEvent(self, e) -> None:
+        e.accept()          # 2º clique rápido: ignorado (não edita, não alterna de volta)
 
 
 class ConnectorItem(QGraphicsItem):

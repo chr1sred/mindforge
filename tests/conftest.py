@@ -2,6 +2,8 @@ import os
 import sys
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+# testes rodam em português (idioma-fonte), qualquer que seja o idioma da máquina
+os.environ.setdefault("MINDFORGE_IDIOMA", "pt_BR")
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import pytest  # noqa: E402
@@ -34,3 +36,16 @@ def window(qapp):
     w.doc.mark_saved()          # evita a pergunta "salvar alterações?"
     w.close()
     QTest.qWait(10)
+
+
+@pytest.fixture(autouse=True)
+def _portugues():
+    """Garante que um teste em inglês não vaze o idioma para os próximos."""
+    yield
+    from mindforge import i18n
+    if i18n.language() != "pt_BR":
+        app = QCoreApplication.instance()
+        if hasattr(app, "_apply_language"):
+            app._apply_language("pt_BR", persist=False)
+        else:
+            i18n.set_language("pt_BR")

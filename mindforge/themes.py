@@ -17,40 +17,42 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from typing import Optional
 
+from mindforge.i18n import N_
+
 # ------------------------------------------------------------------ catálogos
 SHAPES = {
-    "retangulo": "Retângulo",
-    "arredondado": "Arredondado",
-    "capsula": "Cápsula",
-    "elipse": "Elipse",
-    "losango": "Losango",
-    "hexagono": "Hexágono",
-    "sublinhado": "Sublinhado",
-    "sublinhado_duplo": "Sublinhado duplo",
-    "nenhuma": "Sem borda",
+    "retangulo": N_("Retângulo"),
+    "arredondado": N_("Arredondado"),
+    "capsula": N_("Cápsula"),
+    "elipse": N_("Elipse"),
+    "losango": N_("Losango"),
+    "hexagono": N_("Hexágono"),
+    "sublinhado": N_("Sublinhado"),
+    "sublinhado_duplo": N_("Sublinhado duplo"),
+    "nenhuma": N_("Sem borda"),
 }
 BOXED_SHAPES = ("retangulo", "arredondado", "capsula", "elipse", "losango", "hexagono")
 UNDERLINE_SHAPES = ("sublinhado", "sublinhado_duplo")
 
 BRANCH_STYLES = {
-    "colchete_curvo": "Colchete curvo",
-    "colchete_reto": "Colchete reto",
-    "leque_reto": "Leque reto",
-    "arco": "Arco",
-    "chave": "Chave",
-    "diagonal": "Diagonal",
-    "leque_curvo": "Leque curvo",
+    "colchete_curvo": N_("Colchete curvo"),
+    "colchete_reto": N_("Colchete reto"),
+    "leque_reto": N_("Leque reto"),
+    "arco": N_("Arco"),
+    "chave": N_("Chave"),
+    "diagonal": N_("Diagonal"),
+    "leque_curvo": N_("Leque curvo"),
 }
-LINE_PATTERNS = {"nenhum": "Nenhum", "solido": "Sólido", "tracejado": "Tracejado", "pontilhado": "Pontilhado"}
+LINE_PATTERNS = {"nenhum": N_("Nenhum"), "solido": N_("Sólido"), "tracejado": N_("Tracejado"), "pontilhado": N_("Pontilhado")}
 BORDER_STYLES = LINE_PATTERNS
 LINE_ENDS = {
-    "nenhum": "Nenhum", "circulo": "Círculo", "seta": "Seta", "seta_aberta": "Seta aberta",
-    "quadrado": "Quadrado", "losango": "Losango", "barra": "Barra", "seta_invertida": "Seta invertida",
+    "nenhum": N_("Nenhum"), "circulo": N_("Círculo"), "seta": N_("Seta"), "seta_aberta": N_("Seta aberta"),
+    "quadrado": N_("Quadrado"), "losango": N_("Losango"), "barra": N_("Barra"), "seta_invertida": N_("Seta invertida"),
 }
-LEVELS = {"xfino": "Extra fino", "fino": "Fino", "medio": "Médio", "grosso": "Grosso", "xgrosso": "Extra grosso"}
+LEVELS = {"xfino": N_("Extra fino"), "fino": N_("Fino"), "medio": N_("Médio"), "grosso": N_("Grosso"), "xgrosso": N_("Extra grosso")}
 LINE_LEVEL_PX = {"xfino": 1.0, "fino": 1.5, "medio": 2.25, "grosso": 3.25, "xgrosso": 4.5}
 BORDER_LEVEL_PX = {"xfino": 1.0, "fino": 1.5, "medio": 2.0, "grosso": 3.0, "xgrosso": 4.0}
-TEXT_CASES = {"normal": "Normal", "upper": "MAIÚSCULAS", "lower": "minúsculas", "title": "Primeira Maiúscula"}
+TEXT_CASES = {"normal": N_("Normal"), "upper": N_("MAIÚSCULAS"), "lower": N_("minúsculas"), "title": N_("Primeira Maiúscula")}
 ALIGNS = ("left", "center", "right")
 
 
@@ -112,6 +114,7 @@ class Theme:
     hidden: bool = False                  # temas internos (miniaturas) não aparecem na lista
     tint: float = 0.84                    # quanto do fundo entra no $tint
     extras: dict = field(default_factory=dict)
+    strict: bool = False                  # temas de cores (1.3): garante contraste mínimo de texto/linhas
 
 
 # ------------------------------------------------------------------- cores
@@ -143,6 +146,27 @@ def _luminance(hex_color: str) -> float:
     return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
 
 
+def contrast_ratio(a: str, b: str) -> float:
+    """Contraste WCAG entre duas cores (1 a 21)."""
+    la, lb = _luminance(a), _luminance(b)
+    hi, lo = max(la, lb), min(la, lb)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def readable(color: str, against: str, ratio: float, toward: Optional[str] = None) -> str:
+    """Escurece/clareia `color` (mantendo o matiz) até atingir o contraste pedido com `against`."""
+    if contrast_ratio(color, against) >= ratio:
+        return color
+    targets = [toward] if toward else []
+    targets += ["#000000", "#FFFFFF"] if _luminance(against) > 0.18 else ["#FFFFFF", "#000000"]
+    for target in targets:
+        for i in range(1, 21):
+            c = mix(color, target, i / 20)
+            if contrast_ratio(c, against) >= ratio:
+                return c
+    return "#000000" if _luminance(against) > 0.18 else "#FFFFFF"
+
+
 def is_dark(hex_color: str) -> bool:
     return _luminance(hex_color) < 0.18
 
@@ -166,7 +190,7 @@ def _register(t: Theme) -> None:
 # Clássico — inspirado no XMind: central escuro, principais preenchidos com a
 # cor do ramo e subtópicos em caixas suaves tingidas.
 _register(Theme(
-    key="classico", label="Clássico", background="#FFFFFF", relation_color="#7C8594",
+    key="classico", label=N_("Clássico"), background="#FFFFFF", relation_color="#7C8594",
     root=dict(shape="arredondado", fill="#0E1033", text_color="#FFFFFF", font_size=26, weight=600,
               pad_x=26, pad_y=15, line_width=2.5, line_color="#2A2E45", max_text_width=360),
     main=dict(shape="arredondado", fill="$branch", text_color="$auto", font_size=18, weight=600,
@@ -180,7 +204,7 @@ _register(Theme(
 ))
 
 _register(Theme(
-    key="escuro", label="Escuro", background="#1C1E24", relation_color="#9AA4B2", ink="#F2F3F5",
+    key="escuro", label=N_("Escuro"), background="#1C1E24", relation_color="#9AA4B2", ink="#F2F3F5",
     root=dict(shape="arredondado", fill="#F2F3F5", text_color="#1C1E24", font_size=26, weight=600,
               pad_x=26, pad_y=15, line_width=2.5, line_color="#8B949E", max_text_width=360),
     main=dict(shape="arredondado", fill="$branch", text_color="$auto", font_size=18, weight=600,
@@ -194,7 +218,7 @@ _register(Theme(
 ))
 
 _register(Theme(
-    key="oceano", label="Oceano", background="#F2F7FB", relation_color="#5E7A93", ink="#173B57",
+    key="oceano", label=N_("Oceano"), background="#F2F7FB", relation_color="#5E7A93", ink="#173B57",
     root=dict(shape="capsula", fill="#0B3C5D", text_color="#FFFFFF", font_size=26, weight=600,
               pad_x=28, pad_y=15, line_width=2.5, line_color="#0B3C5D", max_text_width=360),
     main=dict(shape="capsula", fill="$branch", text_color="$auto", font_size=18, weight=600,
@@ -208,7 +232,7 @@ _register(Theme(
 ))
 
 _register(Theme(
-    key="minimalista", label="Minimalista", background="#FFFFFF", relation_color="#9A9A9A", ink="#111111",
+    key="minimalista", label=N_("Minimalista"), background="#FFFFFF", relation_color="#9A9A9A", ink="#111111",
     root=dict(shape="retangulo", fill=None, border="#111111", border_width=2.4, text_color="#111111",
               font_size=24, weight=700, pad_x=20, pad_y=12, line_width=2.0, line_color="#444444",
               max_text_width=340),
@@ -223,7 +247,7 @@ _register(Theme(
 ))
 
 _register(Theme(
-    key="pastel", label="Pastel", background="#FFFBF5", relation_color="#A08C7A", ink="#3E3A36",
+    key="pastel", label=N_("Pastel"), background="#FFFBF5", relation_color="#A08C7A", ink="#3E3A36",
     root=dict(shape="elipse", fill="#FFD6A5", text_color="#4A3426", font_size=24, weight=700,
               pad_x=30, pad_y=18, line_width=2.5, line_color="#C8A98C", max_text_width=320),
     main=dict(shape="arredondado", fill="$branch", text_color="#3E3A36", font_size=18, weight=600,
@@ -238,7 +262,7 @@ _register(Theme(
 
 # Tema interno usado nas miniaturas do seletor de esqueleto (visual "rascunho" do XMind)
 _register(Theme(
-    key="_esqueleto", label="Esqueleto", background="#FFFFFF", relation_color="#B8BDC6",
+    key="_esqueleto", label=N_("Esqueleto"), background="#FFFFFF", relation_color="#B8BDC6",
     root=dict(shape="arredondado", fill="#C9CED6", text_color="#C9CED6", font_size=22, weight=700,
               pad_x=22, pad_y=14, line_width=2.5, line_color="#9AA1AC", max_text_width=340),
     main=dict(shape="arredondado", fill="#DDE1E6", text_color="#DDE1E6", font_size=16, pad_x=14,
@@ -318,10 +342,30 @@ def resolve_style(theme: Theme, level: str, branch: Optional[str],
     base["fill"] = fill
     for k in ("border", "line_color", "text_color"):
         base[k] = _token(base.get(k), theme, branch, bg, fill)
+    if theme.strict:
+        _enforce_contrast(base, level, bg)
     if "bold" in base:                       # compatibilidade com temas antigos
         base.setdefault("weight", 700 if base.pop("bold") else 400)
     st = TopicStyle(**{k: v for k, v in base.items() if k in TopicStyle.__dataclass_fields__})
     return apply_overrides(st, overrides or {}, theme)
+
+
+# contraste mínimo (WCAG): 4,5:1 para texto normal; 3:1 para texto grande (principal e central)
+MIN_TEXT_CONTRAST = {"root": 3.0, "main": 3.0, "sub": 4.5, "floating": 4.5}
+MIN_LINE_CONTRAST = 1.5
+
+
+def _enforce_contrast(base: dict, level: str, bg: str) -> None:
+    surface = base.get("fill") or bg
+    tc = base.get("text_color")
+    if isinstance(tc, str) and tc.startswith("#"):
+        base["text_color"] = readable(tc, surface, MIN_TEXT_CONTRAST.get(level, 4.5))
+    lc = base.get("line_color")
+    if isinstance(lc, str) and lc.startswith("#"):
+        base["line_color"] = readable(lc, bg, MIN_LINE_CONTRAST)
+    bd = base.get("border")
+    if isinstance(bd, str) and bd.startswith("#") and not base.get("fill"):
+        base["border"] = readable(bd, bg, MIN_LINE_CONTRAST)
 
 
 def apply_overrides(st: TopicStyle, o: dict, theme: Theme) -> TopicStyle:

@@ -9,6 +9,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from typing import Iterator, Optional
+from mindforge.i18n import tr
 
 SCHEMA_VERSION = 1
 
@@ -24,6 +25,11 @@ MAP_SETTINGS_DEFAULTS = {
     "compact": False,       # compactar mapa (menos espaço entre tópicos)
     "branch_style": None,   # estilo de ramo padrão do mapa (None = o do esqueleto)
     "fishbone_align": False,  # espinha de peixe: todas as espinhas com o mesmo comprimento
+    # ---- temas de cores (1.3)
+    "color_theme": None,    # {"id", "name", "colors": [6 hex]} ou None = tema antigo (m.theme)
+    "color_variant": 0,     # 0..5: Contraste, Central colorido, Suave, Contorno, Noturno, Tom sobre tom
+    "branch_palette": None,  # roda do Ramo colorido: chave de colorthemes.BRANCH_PALETTES ou None = do tema
+    "static_color": None,   # cor única dos ramos com "Ramo colorido" desligado (None = do tema)
 }
 
 
@@ -187,7 +193,7 @@ class Relation:
 class MindMap:
     def __init__(self, root: Optional[Topic] = None, layout: str = DEFAULT_LAYOUT,
                  theme: str = DEFAULT_THEME):
-        self.root: Topic = root or Topic("Tema central")
+        self.root: Topic = root or Topic(tr("Tema central"))
         self.root.parent = None
         self.root.pos = None
         self.floating: list[Topic] = []
@@ -248,11 +254,12 @@ class MindMap:
     @classmethod
     def from_dict(cls, d: dict) -> "MindMap":
         seen: set = set()
-        root = Topic.from_dict(d.get("root") or {"text": "Tema central"}, None, seen)
+        root = Topic.from_dict(d.get("root") or {"text": tr("Tema central")}, None, seen)
         m = cls(root, str(d.get("layout") or DEFAULT_LAYOUT), str(d.get("theme") or DEFAULT_THEME))
         raw = d.get("settings") or {}
         if isinstance(raw, dict):
             m.settings = {k: v for k, v in raw.items() if k in MAP_SETTINGS_DEFAULTS}
+            _sanitize_color_settings(m.settings)
         for fd in d.get("floating") or []:
             f = Topic.from_dict(fd, None, seen)
             if f.pos is None:
@@ -267,3 +274,22 @@ class MindMap:
             if r.source in ids and r.target in ids and r.source != r.target:
                 m.relations.append(r)
         return m
+
+
+def _sanitize_color_settings(st: dict) -> None:
+    """Descarta valores de cor inválidos vindos do arquivo (o mapa abre com o padrão)."""
+    from mindforge.colorthemes import BRANCH_PALETTES, is_hex, sanitize_setting
+    if "color_theme" in st:
+        v = sanitize_setting(st["color_theme"])
+        if v is None:
+            st.pop("color_theme")
+        else:
+            st["color_theme"] = v
+    if "color_variant" in st:
+        v = st["color_variant"]
+        if not isinstance(v, int) or isinstance(v, bool) or not 0 <= v <= 5:
+            st.pop("color_variant")
+    if "branch_palette" in st and st["branch_palette"] not in BRANCH_PALETTES:
+        st.pop("branch_palette")
+    if "static_color" in st and not is_hex(st["static_color"]):
+        st.pop("static_color")

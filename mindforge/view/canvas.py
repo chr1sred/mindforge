@@ -11,15 +11,18 @@ from __future__ import annotations
 
 import json
 import math
+import sys
+import time
 from typing import Optional
 
 from PySide6.QtCore import QEvent, QMimeData, QPointF, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QGuiApplication, QKeyEvent, QPainter, QPen, QTransform
+from PySide6.QtGui import QColor, QContextMenuEvent, QFont, QGuiApplication, QKeyEvent, QPainter, QPen, QTransform
 from PySide6.QtWidgets import (
     QGraphicsLineItem, QGraphicsView, QInputDialog, QMessageBox,
 )
 
 from mindforge.document import Document
+from mindforge.i18n import N_, ntr, tr
 from mindforge.model import ops
 from mindforge.model.topic import Topic
 from mindforge.view.items import EditorItem, RelationItem
@@ -28,6 +31,7 @@ from mindforge.view.scene import MindScene
 
 MIME_TOPICS = "application/x-mindforge-topics"
 ZOOM_MIN, ZOOM_MAX = 0.1, 4.0
+RIGHT_DRAG_THRESHOLD = 4          # px que o mouse precisa andar para virar "arrasto"
 
 # Atalhos de janela que continuam funcionando mesmo durante a edição de texto
 _PASS_THROUGH = {Qt.Key.Key_S, Qt.Key.Key_N, Qt.Key.Key_O, Qt.Key.Key_E, Qt.Key.Key_W,
@@ -68,6 +72,9 @@ class MindCanvas(QGraphicsView):
         self._space_used = False
         self._panning = False
         self._pan_last = QPointF()
+        self._rpress: Optional[QPointF] = None      # botão direito pressionado (clique ou arrasto?)
+        self._rdragging = False
+        self._ctx_suppress_until = 0.0
         self._pending_merge: Optional[tuple[str, str]] = None
         self._merge_seq = 0
         self.relation_source: Optional[str] = None
@@ -84,6 +91,7 @@ class MindCanvas(QGraphicsView):
         sc.selectionChanged.connect(self._on_selection_changed)
         sc.edit_requested.connect(lambda tid: self.start_edit(tid))
         sc.collapse_requested.connect(lambda tid: self.toggle_collapse([tid]))
+        sc.expand_all_requested.connect(self.expand_all_from)
         sc.topics_dropped.connect(self._on_drop)
         sc.floating_moved.connect(self._on_floating_moved)
         sc.background_double_clicked.connect(self.add_floating)
@@ -170,12 +178,12 @@ class MindCanvas(QGraphicsView):
     def add_child(self) -> None:
         self.commit_edit()
         parent = self.current() or self.doc.map.root.id
-        self._create_and_edit("Adicionar subtópico", lambda m: ops.add_child(m, parent))
+        self._create_and_edit(N_("Adicionar subtópico"), lambda m: ops.add_child(m, parent))
 
     def add_sibling(self, before: bool = False) -> None:
         self.commit_edit()
         cur = self.current() or self.doc.map.root.id
-        label = "Adicionar tópico irmão"
+        label = tr("Adicionar tópico irmão")
         self._create_and_edit(label, lambda m: ops.add_sibling(m, cur, before=before))
 
     def add_parent(self) -> None:
@@ -184,16 +192,16 @@ class MindCanvas(QGraphicsView):
         cur = self.current()
         t = self.doc.map.find(cur)
         if t is None or t.parent is None:
-            self.status_message.emit("Selecione um tópico que tenha pai para inserir um tópico pai.")
+            self.status_message.emit(tr("Selecione um tópico que tenha pai para inserir um tópico pai."))
             return
-        self._create_and_edit("Inserir tópico pai", lambda m: ops.insert_parent(m, cur))
+        self._create_and_edit(N_("Inserir tópico pai"), lambda m: ops.insert_parent(m, cur))
 
     def add_floating(self, scene_pos: Optional[QPointF] = None) -> None:
         self.commit_edit()
         if scene_pos is None or not isinstance(scene_pos, QPointF):
             scene_pos = self.mapToScene(self.viewport().rect().center())
         x, y = scene_pos.x() - 50, scene_pos.y() - 16
-        self._create_and_edit("Adicionar tópico flutuante", lambda m: ops.add_floating(m, x, y))
+        self._create_and_edit(N_("Adicionar tópico flutuante"), lambda m: ops.add_floating(m, x, y))
 
     # ================================================================== excluir
     def delete_selected(self) -> None:
@@ -201,18 +209,18 @@ class MindCanvas(QGraphicsView):
         rels = self.mscene.selected_relation_ids()
         ids = self.mscene.selected_topic_ids()
         if rels and not ids:
-            self.doc.apply("Excluir relação", lambda m: ops.delete_relations(m, rels), select=[])
+            self.doc.apply(N_("Excluir relação"), lambda m: ops.delete_relations(m, rels), select=[])
             return
         if not ids:
             return
         if ids == [self.doc.map.root.id]:
-            self.status_message.emit("O tópico central não pode ser excluído.")
+            self.status_message.emit(tr("O tópico central não pode ser excluído."))
             return
         try:
             def fn(m):
                 ops.delete_relations(m, rels)
                 return ops.delete_topics(m, ids)
-            self.doc.apply("Excluir tópico", fn, select=lambda r: [r] if r else [])
+            self.doc.apply(N_("Excluir tópico"), fn, select=lambda r: [r] if r else [])
         except ops.OpError as exc:
             self.status_message.emit(str(exc))
 
@@ -304,7 +312,7 @@ class MindCanvas(QGraphicsView):
         merge = self._pending_merge[1] if self._pending_merge and self._pending_merge[0] == ed.tid else None
         self._pending_merge = None
         if text != ed.original and self.doc.map.find(ed.tid) is not None:
-            self.doc.apply("Editar texto", lambda m: ops.set_text(m, ed.tid, text),
+            self.doc.apply(N_("Editar texto"), lambda m: ops.set_text(m, ed.tid, text),
                            select=[ed.tid], merge_key=merge)
         else:
             self.mscene.sync()
@@ -352,7 +360,7 @@ class MindCanvas(QGraphicsView):
         self.commit_edit()
         cur = self.current()
         if cur:
-            self.doc.apply("Mover tópico", lambda m: ops.reorder(m, cur, delta), select=[cur])
+            self.doc.apply(N_("Mover tópico"), lambda m: ops.reorder(m, cur, delta), select=[cur])
 
     # ================================================================ estrutura
     def toggle_collapse(self, ids: Optional[list] = None) -> None:
@@ -360,11 +368,34 @@ class MindCanvas(QGraphicsView):
         ids = ids or self.mscene.selected_topic_ids()
         if not ids:
             return
-        self.doc.apply("Recolher/expandir", lambda m: ops.toggle_collapse(m, ids), select=ids)
+        def fn(m):
+            ops.toggle_collapse(m, ids)
+            return self._visible_selection(m, ids)
+        self.doc.apply(N_("Recolher/expandir"), fn, select=lambda sel: sel)
+
+    def _visible_selection(self, m, toggled: list) -> list:
+        """Seleção depois de recolher: quem ficou escondido passa a seleção para o tópico recolhido."""
+        out: list = []
+        for tid in list(self.mscene.selected_topic_ids()) + list(toggled):
+            t = m.find(tid)
+            if t is None:
+                continue
+            hidden_by = None
+            for a in t.ancestors():
+                if a.collapsed:
+                    hidden_by = a
+            target = hidden_by.id if hidden_by is not None else tid
+            if target not in out:
+                out.append(target)
+        return [x for x in out if x in toggled] or out
+
+    def expand_all_from(self, tid: str) -> None:
+        self.commit_edit()
+        self.doc.apply(N_("Expandir ramo"), lambda m: ops.expand_subtree(m, tid), select=[tid])
 
     def set_collapsed_all(self, collapsed: bool) -> None:
         self.commit_edit()
-        label = "Recolher tudo" if collapsed else "Expandir tudo"
+        label = tr("Recolher tudo") if collapsed else tr("Expandir tudo")
         keep = [i for i in self.selected_ids()]
         self.doc.apply(label, lambda m: ops.set_collapsed_all(m, collapsed), select=keep)
 
@@ -374,7 +405,7 @@ class MindCanvas(QGraphicsView):
         if t is None:
             return
         if any(a.collapsed for a in t.ancestors()):
-            self.doc.apply("Expandir ramo", lambda m: ops.expand_ancestors(m, tid), select=[tid])
+            self.doc.apply(N_("Expandir ramo"), lambda m: ops.expand_ancestors(m, tid), select=[tid])
         self.select_id(tid, center=True)
 
     def _on_drop(self, ids: list, target: str) -> None:
@@ -382,7 +413,7 @@ class MindCanvas(QGraphicsView):
             for tid in ids:
                 ops.move_topic(m, tid, target)
         try:
-            self.doc.apply("Mover tópico", fn, select=ids)
+            self.doc.apply(N_("Mover tópico"), fn, select=ids)
         except ops.OpError as exc:
             self.status_message.emit(str(exc))
             self.mscene.sync()
@@ -391,7 +422,7 @@ class MindCanvas(QGraphicsView):
         def fn(m):
             for tid, x, y in moves:
                 ops.set_floating_pos(m, tid, x, y)
-        self.doc.apply("Mover tópico flutuante", fn)
+        self.doc.apply(N_("Mover tópico flutuante"), fn)
 
     # =========================================================== área de transf.
     def copy(self) -> bool:
@@ -403,13 +434,13 @@ class MindCanvas(QGraphicsView):
         data.setData(MIME_TOPICS, json.dumps([t.to_dict() for t in topics], ensure_ascii=False).encode("utf-8"))
         data.setText(ops.to_outline(topics))
         QGuiApplication.clipboard().setMimeData(data)
-        self.status_message.emit(f"{len(topics)} tópico(s) copiado(s).")
+        self.status_message.emit(ntr("{n} tópico copiado.", "{n} tópicos copiados.", len(topics)))
         return True
 
     def cut(self) -> None:
         self.commit_edit()
         if self.mscene.selected_topic_ids() == [self.doc.map.root.id]:
-            self.status_message.emit("O tópico central não pode ser recortado.")
+            self.status_message.emit(tr("O tópico central não pode ser recortado."))
             return
         if self.copy():
             self.delete_selected()
@@ -427,32 +458,32 @@ class MindCanvas(QGraphicsView):
         if not topics and md is not None and md.hasText():
             topics = ops.parse_outline(md.text())
         if not topics:
-            self.status_message.emit("Nada para colar.")
+            self.status_message.emit(tr("Nada para colar."))
             return
         parent = self.current()
         at = None
         if parent is None:
             c = self.mapToScene(self.viewport().rect().center())
             at = (c.x(), c.y())
-        self.doc.apply("Colar", lambda m: ops.paste_topics(m, parent, topics, at), select=lambda r: r)
+        self.doc.apply(N_("Colar"), lambda m: ops.paste_topics(m, parent, topics, at), select=lambda r: r)
 
     def duplicate(self) -> None:
         self.commit_edit()
         ids = self.mscene.selected_topic_ids()
         if ids:
-            self.doc.apply("Duplicar", lambda m: ops.duplicate(m, ids), select=lambda r: r or ids)
+            self.doc.apply(N_("Duplicar"), lambda m: ops.duplicate(m, ids), select=lambda r: r or ids)
 
     # ================================================================= relações
     def start_relation(self) -> None:
         self.commit_edit()
         cur = self.current()
         if cur is None:
-            self.status_message.emit("Selecione o tópico de origem da relação.")
+            self.status_message.emit(tr("Selecione o tópico de origem da relação."))
             return
         self.relation_source = cur
         self.viewport().setCursor(Qt.CursorShape.CrossCursor)
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
-        self.status_message.emit("Clique no tópico de destino da relação (Esc cancela).")
+        self.status_message.emit(tr("Clique no tópico de destino da relação (Esc cancela)."))
 
     def _end_relation_mode(self) -> None:
         self.relation_source = None
@@ -466,9 +497,9 @@ class MindCanvas(QGraphicsView):
         rel = next((r for r in self.doc.map.relations if r.id == rid), None)
         if rel is None:
             return
-        text, ok = QInputDialog.getText(self, "Rótulo da relação", "Texto da relação:", text=rel.label)
+        text, ok = QInputDialog.getText(self, tr("Rótulo da relação"), tr("Texto da relação:"), text=rel.label)
         if ok:
-            self.doc.apply("Rótulo da relação", lambda m: ops.set_relation_label(m, rid, text.strip()))
+            self.doc.apply(N_("Rótulo da relação"), lambda m: ops.set_relation_label(m, rid, text.strip()))
 
     # ===================================================================== zoom
     def set_zoom(self, z: float, anchor_view_center: bool = False) -> None:
@@ -480,6 +511,7 @@ class MindCanvas(QGraphicsView):
         if anchor_view_center:
             self.setTransformationAnchor(old)
         self.zoom = z
+        self.mscene.set_view_scale(z)
         self.zoom_changed.emit(z)
 
     def zoom_in(self) -> None:
@@ -556,13 +588,52 @@ class MindCanvas(QGraphicsView):
         super().keyReleaseEvent(e)
 
     # ==================================================================== mouse
+    # ------------------------------------------------------- mover o quadro
+    def _pan_by(self, dx: float, dy: float) -> None:
+        """Move a visualização; se chegar no limite do quadro, o quadro cresce (tela "infinita")."""
+        hb, vb = self.horizontalScrollBar(), self.verticalScrollBar()
+        nh, nv = hb.value() - dx, vb.value() - dy
+        if nh < hb.minimum() or nh > hb.maximum() or nv < vb.minimum() or nv > vb.maximum():
+            vis = self.mapToScene(self.viewport().rect()).boundingRect()
+            k = 1.0 / max(self.zoom, 1e-6)
+            self.mscene.grow_bounds(vis.translated(-dx * k, -dy * k).adjusted(-400, -400, 400, 400))
+        hb.setValue(int(round(hb.value() - dx)))
+        vb.setValue(int(round(vb.value() - dy)))
+
+    def _start_pan(self, pos) -> None:
+        self._panning = True
+        self._pan_last = pos
+        self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
+
+    def _end_pan(self) -> None:
+        self._panning = False
+        if self._space_down:
+            self.viewport().setCursor(Qt.CursorShape.OpenHandCursor)
+        else:
+            self.viewport().unsetCursor()
+
+    def _is_mac_ctrl_click(self, e) -> bool:
+        # No Mac, Control+clique é o "clique secundário" de quem tem um botão só (Qt chama de Meta)
+        return sys.platform == "darwin" and e.button() == Qt.MouseButton.LeftButton and \
+            bool(e.modifiers() & Qt.KeyboardModifier.MetaModifier)
+
     def mousePressEvent(self, e) -> None:
+        if e.button() == Qt.MouseButton.RightButton:
+            # Botão direito: decide no SOLTAR se foi clique (menu) ou arrasto (mover o quadro).
+            self.commit_edit()
+            self._rpress = e.position()
+            self._rdragging = False
+            e.accept()
+            return
+        if self._is_mac_ctrl_click(e):
+            self._open_context_menu(e.position().toPoint())
+            e.accept()
+            return
         if e.button() == Qt.MouseButton.MiddleButton or \
                 (e.button() == Qt.MouseButton.LeftButton and self._space_down):
-            self._panning = True
+            self.commit_edit()
             self._space_used = True
-            self._pan_last = e.position()
-            self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
+            self._start_pan(e.position())
             e.accept()
             return
         if self.relation_source and e.button() == Qt.MouseButton.LeftButton:
@@ -570,8 +641,8 @@ class MindCanvas(QGraphicsView):
             src = self.relation_source
             self._end_relation_mode()
             if target is not None and target.tid != src:
-                self.doc.apply("Adicionar relação", lambda m: ops.add_relation(m, src, target.tid))
-                self.status_message.emit("Relação criada. Dê duplo clique na linha para nomeá-la.")
+                self.doc.apply(N_("Adicionar relação"), lambda m: ops.add_relation(m, src, target.tid))
+                self.status_message.emit(tr("Relação criada. Dê duplo clique na linha para nomeá-la."))
             else:
                 self.status_message.emit("")
             e.accept()
@@ -584,11 +655,17 @@ class MindCanvas(QGraphicsView):
                 self.current_changed.emit()
 
     def mouseMoveEvent(self, e) -> None:
+        if self._rpress is not None:
+            if not self._rdragging:
+                if (e.position() - self._rpress).manhattanLength() < RIGHT_DRAG_THRESHOLD:
+                    e.accept()
+                    return
+                self._rdragging = True
+                self._start_pan(self._rpress)
         if self._panning:
             d = e.position() - self._pan_last
             self._pan_last = e.position()
-            self.horizontalScrollBar().setValue(int(self.horizontalScrollBar().value() - d.x()))
-            self.verticalScrollBar().setValue(int(self.verticalScrollBar().value() - d.y()))
+            self._pan_by(d.x(), d.y())
             e.accept()
             return
         if self.relation_source:
@@ -606,12 +683,21 @@ class MindCanvas(QGraphicsView):
         super().mouseMoveEvent(e)
 
     def mouseReleaseEvent(self, e) -> None:
-        if self._panning and e.button() in (Qt.MouseButton.MiddleButton, Qt.MouseButton.LeftButton):
-            self._panning = False
-            if self._space_down:
-                self.viewport().setCursor(Qt.CursorShape.OpenHandCursor)
+        if e.button() == Qt.MouseButton.RightButton and self._rpress is not None:
+            dragged = self._rdragging
+            press = self._rpress
+            self._rpress = None
+            self._rdragging = False
+            # o Windows manda o pedido de menu DEPOIS de soltar: ignoramos esse eco
+            self._ctx_suppress_until = time.monotonic() + 0.4
+            if dragged:
+                self._end_pan()
             else:
-                self.viewport().unsetCursor()
+                self._open_context_menu(press.toPoint())
+            e.accept()
+            return
+        if self._panning and e.button() in (Qt.MouseButton.MiddleButton, Qt.MouseButton.LeftButton):
+            self._end_pan()
             e.accept()
             return
         super().mouseReleaseEvent(e)
@@ -634,20 +720,33 @@ class MindCanvas(QGraphicsView):
         return super().viewportEvent(e)
 
     def contextMenuEvent(self, e) -> None:
+        # O menu do mouse é aberto por nós ao soltar o botão direito (ver mouseReleaseEvent).
+        # Aqui só tratamos: tecla de menu do teclado e cliques secundários que não passaram
+        # pelo botão direito (ex.: toque com dois dedos em alguns trackpads).
+        if e.reason() == QContextMenuEvent.Reason.Keyboard:
+            cur = self.current()
+            it = self.mscene.topic_items.get(cur) if cur else None
+            pos = self.mapFromScene(it.mapRectToScene(it.box_rect()).center()) if it else self.viewport().rect().center()
+            self._open_context_menu(pos)
+        elif self._rpress is None and time.monotonic() > self._ctx_suppress_until:
+            self._open_context_menu(e.pos())
+        e.accept()
+
+    def _open_context_menu(self, vpos) -> None:
         self.commit_edit()
-        it = self.mscene.topic_at(self.mapToScene(e.pos()))
+        scene_pos = self.mapToScene(vpos)
+        it = self.mscene.topic_at(scene_pos)
         if it is not None and not it.isSelected():
             self.select_id(it.tid)
         elif it is not None:
             self.current_id = it.tid
         if it is None:
-            for x in self.mscene.items(self.mapToScene(e.pos())):
+            for x in self.mscene.items(scene_pos):
                 if isinstance(x, RelationItem):
                     self.mscene.clearSelection()
                     x.setSelected(True)
                     break
-        self.context_menu_requested.emit(it.tid if it else None, e.globalPos())
-        e.accept()
+        self.context_menu_requested.emit(it.tid if it else None, self.viewport().mapToGlobal(vpos))
 
     # ============================================================== utilitários
     def confirm(self, title: str, text: str) -> bool:

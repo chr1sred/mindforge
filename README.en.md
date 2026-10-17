@@ -1,0 +1,234 @@
+# MindForge
+
+[🇧🇷 Português](README.md) · 🇺🇸 English
+
+A mind map editor in Python + PySide6 (Qt), inspired by XMind.
+
+- Runs on **macOS, Windows and Linux**.
+- **7 structures**, **21 color themes in 6 variations** (plus your own palettes) and **7 branch styles**.
+- **Full keyboard editing** and **undo up to 100 levels**.
+- Exports **transparent PNG, and vector SVG and PDF**.
+- Interface in **Portuguese (PT-BR) and English (EN-US)**.
+
+---
+
+## 1. Install and run (macOS + VS Code)
+
+```bash
+cd mindforge
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt
+python -m mindforge                     # or F5 in VS Code ("MindForge")
+```
+
+> Requires Python 3.11 or later. In VS Code, select the `.venv` interpreter (Cmd+Shift+P → *Python: Select Interpreter*).
+
+To open a file directly: `python -m mindforge path/to/map.mfmap`
+
+> **Upgrading from an earlier version?** `requirements-dev.txt` hasn’t changed in this version; just replace the files and run the tests.
+
+## 2. Build the installer (PyInstaller)
+
+| System | Command | Output |
+|---|---|---|
+| macOS | `./build.sh` | `dist/MindForge.app` and `dist/MindForge.dmg` |
+| Windows | `build.bat` | `dist\MindForge\MindForge.exe` |
+| Linux | `./build.sh` | `dist/MindForge/MindForge` |
+
+The scripts set up the environment, **run the tests** (the build stops if any fails) and call:
+
+```bash
+pyinstaller mindforge.spec --noconfirm
+```
+
+**Notes:**
+
+- **Build on each system.** PyInstaller doesn’t cross-compile: the `.exe` must be built on Windows and the `.app` on a Mac.
+- **`.mfmap` files open with a double-click.** On macOS the `.app` registers the `.mfmap` extension, so Finder opens the file straight in MindForge.
+- **Sharing with other Macs.** Without an Apple signature, macOS shows a warning the first time; right-click → *Open*. To distribute without the warning, sign and notarize with an Apple Developer account.
+- **Intel and Apple Silicon Macs.** The package targets the architecture of the Mac it was built on. To support both, build on each architecture or use a *universal2* Python.
+
+## 3. Shortcuts
+
+On macOS, `Ctrl` = `⌘`. The full list is also under **Help → Keyboard shortcuts (F1)**.
+
+| Action | Shortcut |
+|---|---|
+| New subtopic | `Tab` |
+| New sibling below / above | `Enter` / `Shift+Enter` |
+| Insert parent topic | `Ctrl+Enter` |
+| Edit text | `F2`, `Space` or just start typing |
+| Line break (while editing) | `Shift+Enter` |
+| Confirm / cancel editing | `Enter` / `Esc` |
+| Delete topic | `Delete` / `Backspace` |
+| Navigate | Arrow keys |
+| Move among siblings | `Ctrl+↑` / `Ctrl+↓` |
+| Collapse / expand | `Ctrl+/`, or click the branch’s `⊖` / number |
+| Expand the whole branch | `Alt`+click the number |
+| Undo / redo | `Ctrl+Z` / `Ctrl+Shift+Z` or `Ctrl+Y` |
+| Copy / cut / paste / duplicate | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` / `Ctrl+D` |
+| Relationship | `Ctrl+R`, then click the target |
+| Floating topic | Double-click the background |
+| Save / export / find | `Ctrl+S` / `Ctrl+E` / `Ctrl+F` |
+| Zoom | `Ctrl+=` / `Ctrl+-` / `Ctrl+0` (fit) / `Ctrl+1` (100%) / trackpad pinch |
+| Pan the canvas | Right-drag, trackpad scrolling, `Space`+drag or middle button |
+
+**Tips:**
+
+- **Paste an indented list.** Pasting (`Ctrl+V`) indented text — a list from Notes, an email or Markdown — builds the topic hierarchy automatically.
+- **Drag to reorganize.** Dropping a topic onto another makes it a subtopic.
+
+**Collapsing branches (XMind style).** Hover over a topic that has subtopics (or select it) and a `⊖` appears where the branch leaves. Click it to collapse; a circle with the **number of hidden topics** takes its place. Click the number to expand one level, or `Alt`+click to expand the whole branch. The central topic doesn’t collapse.
+
+The control has **its own hover**: under the mouse it fills with the branch color, grows slightly and shows a hand cursor and a tooltip. It waits a moment before hiding, so the mouse can travel from the topic to it, and at low zoom its click area never gets smaller than about 16 px on screen. Clicking anywhere inside a topic’s box always selects the topic.
+
+**Right mouse button.** A simple click opens the context menu, as before. **Press and drag** to pan the board (the cursor becomes a closed hand); the board grows if you go past the edge of the map.
+
+## Language / Idioma
+
+The language lives in **Settings → Idioma / Language**:
+
+| System | Where |
+|---|---|
+| macOS | **MindForge → Settings…** menu (`⌘,`), right below *About MindForge* |
+| Windows / Linux | **Help → Settings…** menu, right below *About MindForge* |
+
+- **Switches instantly.** Windows are rebuilt in the new language without closing open maps, losing unsaved changes or the undo history.
+- **First run.** Follows the system language: Portuguese if the system is in Portuguese; English otherwise.
+- **What gets translated.** Menus, panels, dialogs, messages, templates and the default text of new topics (“Tópico principal” becomes “Main Topic”). **Map content is never translated.**
+- **Forcing a language** (handy for testing): `MINDFORGE_IDIOMA=en_US` or `MINDFORGE_IDIOMA=pt_BR`.
+
+## 4. Side panel (XMind style)
+
+| Tab | Contents |
+|---|---|
+| **Style** | Collapsible sections: **Shape** (9 shapes, fill, fixed width), **Border** (style, thickness and color), **Text** (font, weight, size, color, bold, italic, strikethrough, case, alignment), **Branch** (style, line, end, thickness, color), Markers and Note. **Apply to level** and **Reset style** buttons |
+| **Map** | Structure (gallery with thumbnails), color theme (palette + 6 variations), background color, global font, default branch style, line width, rainbow branches, compact map and (fishbone only) align main topics |
+
+### Color theme (XMind style)
+
+Under **Map → Color theme**, the button with the color strip opens a picker with three tabs:
+
+| Tab | Contents |
+|---|---|
+| **My Colors** | Your palettes. The **+** button (or "Create Palette…") opens **Create new color theme**: 6 colors, a name and a live preview. **Auto-complete** suggests the missing colors in harmony with 1 or 2 you picked. Right-click a palette: Edit, Duplicate, Rename, Delete |
+| **Colorful** | 12 palettes: Rainbow (default), Aurora, Tropical, Soft Neon, Sunset, Ocean, Spring, Candy, Vibrant, Forest, Citrus, Pastel |
+| **Classic** | 9 palettes: Executive, Graphite, Earth, Navy, Burgundy, Vintage, Nordic, Sage, Dark |
+
+Below the button, the **6 variations** apply the same palette in different ways:
+
+| Variation | Look |
+|---|---|
+| Contrast | Dark center, filled main topics, subtopics in light boxes |
+| Colored center | Center in the most vivid color, text-only subtopics |
+| Soft | Light main topics with text in the branch color |
+| Outline | Main topics with a colored border on white |
+| Night | Dark background, light text |
+| Tone on tone | Lightly tinted background, capsule shapes, outlined subtopics |
+
+**Details:**
+
+- **Guaranteed contrast.** Text and lines are adjusted automatically to stay readable with any palette, even very light ones.
+- **Background.** Changing the theme or variation resets the background to the theme’s (Night has a dark background).
+- **Manual style wins.** Formatting you applied to a topic stays when you change themes; **Reset style** goes back to the theme.
+- **Your palettes travel with the file.** Colors are stored inside the `.mfmap`, so the map looks the same on another computer even if the palette doesn’t exist there or was deleted.
+- **Default for new maps.** In the picker, **Use as default for new maps** saves the current theme and variation. Palettes and the default live in `temas.json`, in the app’s data folder.
+- **Older maps.** Maps made with the 1.2 themes (Classic, Dark, Ocean, Minimal, Pastel) open identical; picking a variation or palette moves them to the new system.
+- **Export warning.** With a dark background and "Transparent background" checked, the dialog warns that light text may disappear on a white document.
+
+**Rainbow branches.** When on, the button next to it opens a wheel with 9 branch color sets (the first, **From theme**, uses the current palette). The wheel changes main topics, subtopics and lines, never the central topic. When off, the button becomes a single **static color** for every branch.
+
+**Branches.** A topic’s Branch options apply to the lines going from it to its subtopics. Check **Also apply to descendants** to extend the choice to the whole branch.
+
+| Branch style | Look |
+|---|---|
+| Curved bracket (⊂) | Default for logic charts and trees |
+| Elbow bracket (⊏) | Default for org charts |
+| Brace ({) | Default for mind maps and fishbone ribs |
+| Straight fan, Arc, Diagonal, Curved fan | Available in any horizontal or vertical structure |
+
+**Multiple selection.** With several topics selected, differing values show as “—” and any change applies to all of them.
+
+**Font.** The app bundles the **Inter** font (SIL OFL license, in `assets/fonts/OFL.txt`), so maps look the same on Mac and Windows. If a map uses a font that isn’t installed, the panel says so and a substitute is used.
+
+The top bar has Topic (with an options menu), Subtopic, Relationship, Marker, Note, Undo/Redo, Find, Export, Full Screen and Panel. Zoom sits in the bottom-right corner.
+
+The interface follows the system’s light/dark mode. To force one, set `MINDFORGE_APARENCIA=claro` (light) or `MINDFORGE_APARENCIA=escuro` (dark).
+
+The **fishbone** grows from left to right. Upper and lower bones form pairs that leave the spine from the same point, each as long as its content, and no text ever crosses a line.
+
+## 5. Export
+
+| Format | Options |
+|---|---|
+| PNG | Transparent background (default), 1x–4x scale, margin |
+| SVG | Transparent background, editable text or text converted to outlines |
+| PDF | Page sized to the map, A4/A3; embedded fonts and selectable text |
+
+**Rules for all three formats:**
+
+- **Scope.** Export the whole map or just the selected branch.
+- **No interface elements.** Selection and cursor never appear in the exported file.
+- **Collapsed branches.** Exported collapsed, exactly as on screen, with the hidden-topics count circle. The `⊖` button is never exported.
+
+## 6. Architecture
+
+```
+mindforge/
+├── model/      Topic tree and operations (pure Python, no Qt)
+├── layouts/    One algorithm per structure (pure Python, testable); produces "branch groups"
+├── document.py Snapshot undo/redo (100 levels)
+├── storage/    .mfmap (versioned JSON, atomic writes) + recovery + user palettes
+├── themes.py   Themes and style resolution (with minimum contrast)
+├── colorthemes.py Color themes: palettes, 6 variations, rainbow-branch wheel
+├── templates.py Starter templates
+├── export/     PNG / SVG / PDF
+├── i18n/       Languages: tr()/ntr()/N_() and the English catalog (en_us.py)
+└── view/       Scene, graphics items, branches (branches.py), canvas (shortcuts), window, panel, dialogs
+```
+
+**Robustness decisions:**
+
+- **Snapshot undo.** Every change goes through `Document.apply()`, which stores the state before and after, so every new feature is undoable from day one.
+- **Create + name is one undo.** “Create topic + type its name” merges into a single `Ctrl+Z`.
+- **Protected text editing.** While editing, `Delete`, `Ctrl+C` and `Ctrl+Z` act on the text, not the map. `Ctrl+S` confirms the edit and saves.
+- **Atomic writes.** The file is written to a temp file, `fsync`ed, and only then replaces the original.
+- **Automatic recovery.** Autosave every 60 s goes to a recovery folder. If the app quits unexpectedly, the maps are offered on the next launch.
+- **Pixel-based fonts.** Same size on screen, PNG, SVG and PDF regardless of each system’s DPI.
+- **Single trunk.** Each parent draws the lines to its children as a group: the shared trunk is stroked once, with no overlaps that make the line look ragged.
+- **Drawn in code.** Icons and markers are drawn with `QPainter` and stay vector in exports.
+- **Portuguese as the translation key.** The Portuguese text in the code is the key of the English catalog (gettext style). Untranslated text shows in Portuguese instead of breaking, and a test fails if any translation is missing.
+
+**File format:** human-readable JSON with `schema_version` for future migrations.
+
+## 7. Tests
+
+```bash
+QT_QPA_PLATFORM=offscreen python -m pytest
+```
+
+The 205 tests cover:
+
+- **Model:** operations and serialization.
+- **Undo/redo:** every operation and the 100-level limit.
+- **Layouts:** no overlapping boxes across 60 random trees per structure, and performance with 1,000 topics.
+- **Files:** atomic writes, corrupted files and recovery.
+- **Export:** real PNG transparency, valid SVG, PDF with embedded fonts, and branch export.
+- **Shortcuts:** keyboard shortcuts, including conflicts while editing.
+- **Collapse and right button (1.3):** hidden count, circle never colliding with topics in every structure, `⊖` left out of exports, clicks anywhere in a topic’s box in every structure and zoom, the control’s own hover, double-click on the control, simple click vs. drag.
+- **Languages (1.3):** every key translated, placeholders and shortcuts preserved, no Portuguese words in the English interface, language switch keeping document, selection and undo.
+- **Color themes (1.3):** minimum text and line contrast in every palette and variation, older maps identical, wheel never changes the center, static color, palette stored in the file, user palettes (create, edit, duplicate, delete, limit, corrupted file), auto-complete, default for new maps, panel, menu and export warning.
+- **Branches and style (1.2):** the 7 styles in every direction, ends, line patterns, single trunk, fishbone with no line crossing text, shapes, strikethrough in SVG, compatibility with older maps, and the panel.
+
+## 8. Roadmap
+
+Planned for future versions:
+
+- Import `.xmind` files.
+- Markdown and OPML import/export.
+- Images inside topics.
+- Presentation mode.
+- Per-topic structure (each branch with its own structure).
+- Hand-drawn lines and tapered branches.
+- Saved styles (custom presets).

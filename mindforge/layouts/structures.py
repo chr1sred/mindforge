@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 
+from mindforge.i18n import N_
 from mindforge.layouts.base import (
     H_GAP, OPTIONS, V_GAP_MAIN, BranchGroup, Connector, Layout, LayoutResult, Metric,
     center_on_root, horizontal_subtree, indented_list, sp, vertical_subtree,
@@ -19,7 +20,7 @@ def _bbox_y(res: LayoutResult, M: dict[str, Metric]) -> tuple[float, float]:
 class MindMapLayout(Layout):
     """Mapa mental balanceado: ramos dos dois lados, sentido horário."""
     key = "mapa_mental"
-    label = "Mapa mental"
+    label = N_("Mapa mental")
     default_branch = "chave"
     MAIN_GAP = 64.0
 
@@ -94,7 +95,7 @@ class LogicLayout(Layout):
 
 class OrgChartLayout(Layout):
     key = "organograma"
-    label = "Organograma"
+    label = N_("Organograma")
     floating_direction = "down"
     default_branch = "colchete_reto"
 
@@ -110,7 +111,7 @@ class OrgChartLayout(Layout):
 class TreeChartLayout(Layout):
     """Árvore: 1º nível lado a lado; demais níveis em lista indentada."""
     key = "arvore"
-    label = "Árvore"
+    label = N_("Árvore")
     default_branch = "colchete_curvo"
     COL_GAP = 34.0
     ROW_GAP = 46.0
@@ -141,7 +142,7 @@ class TreeChartLayout(Layout):
 class TimelineLayout(Layout):
     """Linha do tempo horizontal: eventos na linha, detalhes acima/abaixo."""
     key = "linha_tempo"
-    label = "Linha do tempo"
+    label = N_("Linha do tempo")
     SEG = 46.0
     LIST_OFFSET = 26.0
     INDENT = 22.0
@@ -201,7 +202,7 @@ class FishboneLayout(Layout):
     Implementação: calcula a versão "cabeça à direita" e espelha no fim.
     """
     key = "espinha_peixe"
-    label = "Espinha de peixe"
+    label = N_("Espinha de peixe")
     floating_direction = "right"
     default_branch = "chave"
     TAN = math.tan(math.radians(60))
@@ -292,8 +293,8 @@ class FishboneLayout(Layout):
 LAYOUTS: dict[str, Layout] = {}
 for _l in (
     MindMapLayout(),
-    LogicLayout("mapa_direita", "Mapa lógico (direita)", "right"),
-    LogicLayout("mapa_esquerda", "Mapa lógico (esquerda)", "left"),
+    LogicLayout("mapa_direita", N_("Mapa lógico (direita)"), "right"),
+    LogicLayout("mapa_esquerda", N_("Mapa lógico (esquerda)"), "left"),
     OrgChartLayout(),
     TreeChartLayout(),
     TimelineLayout(),

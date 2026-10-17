@@ -9,14 +9,15 @@ from __future__ import annotations
 import re
 from typing import Iterable, Optional
 
+from mindforge.i18n import N_, tr
 from mindforge.model.topic import MindMap, Relation, Topic
 
 PRIORITY_MARKERS = ("prio1", "prio2", "prio3")
 ALL_MARKERS = ("prio1", "prio2", "prio3", "feito", "estrela", "bandeira", "pergunta", "alerta")
 
-DEFAULT_CHILD_TEXT = {0: "Tópico principal"}
-DEFAULT_SUB_TEXT = "Subtópico"
-DEFAULT_FLOATING_TEXT = "Tópico flutuante"
+DEFAULT_CHILD_TEXT = {0: N_("Tópico principal")}
+DEFAULT_SUB_TEXT = N_("Subtópico")
+DEFAULT_FLOATING_TEXT = N_("Tópico flutuante")
 
 
 class OpError(Exception):
@@ -26,7 +27,7 @@ class OpError(Exception):
 def _get(m: MindMap, tid: str) -> Topic:
     t = m.find(tid)
     if t is None:
-        raise OpError(f"Tópico não encontrado: {tid}")
+        raise OpError(tr("Tópico não encontrado: {id}", id=tid))
     return t
 
 
@@ -36,7 +37,7 @@ def add_child(m: MindMap, parent_id: str, text: Optional[str] = None,
     parent = _get(m, parent_id)
     parent.collapsed = False
     if text is None:
-        text = DEFAULT_CHILD_TEXT[0] if parent is m.root else DEFAULT_SUB_TEXT
+        text = tr(DEFAULT_CHILD_TEXT[0] if parent is m.root else DEFAULT_SUB_TEXT)
     return parent.add_child(Topic(text), index)
 
 
@@ -47,12 +48,12 @@ def add_sibling(m: MindMap, topic_id: str, before: bool = False,
         return add_child(m, topic_id, text)
     idx = t.index_in_parent() + (0 if before else 1)
     if text is None:
-        text = DEFAULT_CHILD_TEXT[0] if t.parent is m.root else DEFAULT_SUB_TEXT
+        text = tr(DEFAULT_CHILD_TEXT[0] if t.parent is m.root else DEFAULT_SUB_TEXT)
     return t.parent.add_child(Topic(text), idx)
 
 
-def add_floating(m: MindMap, x: float, y: float, text: str = DEFAULT_FLOATING_TEXT) -> Topic:
-    t = Topic(text, pos=(float(x), float(y)))
+def add_floating(m: MindMap, x: float, y: float, text: Optional[str] = None) -> Topic:
+    t = Topic(text if text is not None else tr(DEFAULT_FLOATING_TEXT), pos=(float(x), float(y)))
     m.floating.append(t)
     return t
 
@@ -73,7 +74,7 @@ def delete_topics(m: MindMap, ids: Iterable[str]) -> Optional[str]:
     """Exclui tópicos (e seus ramos). Retorna o id sugerido para nova seleção."""
     topics = [t for t in top_level_selection(m, ids) if t is not m.root]
     if not topics:
-        raise OpError("O tópico central não pode ser excluído.")
+        raise OpError(tr("O tópico central não pode ser excluído."))
     next_sel: Optional[str] = None
     removed: set[str] = set()
     for t in topics:
@@ -101,9 +102,9 @@ def move_topic(m: MindMap, tid: str, new_parent_id: str, index: Optional[int] = 
     t = _get(m, tid)
     new_parent = _get(m, new_parent_id)
     if t is m.root:
-        raise OpError("O tópico central não pode ser movido.")
+        raise OpError(tr("O tópico central não pode ser movido."))
     if t is new_parent or t.is_ancestor_of(new_parent):
-        raise OpError("Não é possível mover um tópico para dentro dele mesmo.")
+        raise OpError(tr("Não é possível mover um tópico para dentro dele mesmo."))
     if t.parent is None:
         m.floating.remove(t)
     else:
@@ -128,14 +129,14 @@ def reorder(m: MindMap, tid: str, delta: int) -> bool:
 def set_floating_pos(m: MindMap, tid: str, x: float, y: float) -> None:
     t = _get(m, tid)
     if not m.is_floating_root(t):
-        raise OpError("Somente tópicos flutuantes têm posição livre.")
+        raise OpError(tr("Somente tópicos flutuantes têm posição livre."))
     t.pos = (float(x), float(y))
 
 
 def detach_to_floating(m: MindMap, tid: str, x: float, y: float) -> None:
     t = _get(m, tid)
     if t is m.root or t.parent is None:
-        raise OpError("Tópico já é independente.")
+        raise OpError(tr("Tópico já é independente."))
     t.detach()
     t.pos = (float(x), float(y))
     m.floating.append(t)
@@ -156,6 +157,12 @@ def toggle_collapse(m: MindMap, ids: Iterable[str], value: Optional[bool] = None
         if t is m.root or not t.children:
             continue
         t.collapsed = (not t.collapsed) if value is None else value
+
+
+def expand_subtree(m: MindMap, tid: str) -> None:
+    """Expande o tópico e todos os níveis abaixo dele (Alt+clique no número)."""
+    for t in _get(m, tid).walk():
+        t.collapsed = False
 
 
 def set_collapsed_all(m: MindMap, collapsed: bool) -> None:
@@ -253,6 +260,20 @@ def set_theme(m: MindMap, theme: str) -> None:
     m.theme = theme
 
 
+def set_color_theme(m: MindMap, palette_setting: Optional[dict], variant: Optional[int] = None) -> None:
+    """Aplica um tema de cores (6 cores) e, opcionalmente, a variação (0..5)."""
+    from mindforge.colorthemes import sanitize_setting
+    if palette_setting is not None:
+        v = sanitize_setting(palette_setting)
+        if v is None:
+            raise OpError("Tema de cores inválido.")
+        m.settings["color_theme"] = v
+    if variant is not None:
+        if not 0 <= int(variant) <= 5:
+            raise OpError("Variação inválida.")
+        set_map_setting(m, "color_variant", int(variant))
+
+
 def set_map_setting(m: MindMap, key: str, value) -> None:
     from mindforge.model.topic import MAP_SETTINGS_DEFAULTS
     if key not in MAP_SETTINGS_DEFAULTS:
@@ -267,11 +288,11 @@ def insert_parent(m: MindMap, tid: str, text: Optional[str] = None) -> Topic:
     """Insere um novo tópico entre o tópico e seu pai (Ctrl+Enter no XMind)."""
     t = _get(m, tid)
     if t.parent is None:
-        raise OpError("O tópico central e os flutuantes não têm pai.")
+        raise OpError(tr("O tópico central e os flutuantes não têm pai."))
     parent = t.parent
     idx = t.index_in_parent()
     t.detach()
-    new = Topic(text or (DEFAULT_CHILD_TEXT[0] if parent is m.root else DEFAULT_SUB_TEXT))
+    new = Topic(text or tr(DEFAULT_CHILD_TEXT[0] if parent is m.root else DEFAULT_SUB_TEXT))
     parent.add_child(new, idx)
     new.add_child(t)
     return new
@@ -282,7 +303,7 @@ def add_relation(m: MindMap, source: str, target: str, label: str = "") -> Relat
     _get(m, source)
     _get(m, target)
     if source == target:
-        raise OpError("Uma relação precisa ligar dois tópicos diferentes.")
+        raise OpError(tr("Uma relação precisa ligar dois tópicos diferentes."))
     r = Relation(source, target, label)
     m.relations.append(r)
     return r
@@ -298,7 +319,7 @@ def set_relation_label(m: MindMap, rel_id: str, label: str) -> None:
         if r.id == rel_id:
             r.label = label
             return
-    raise OpError("Relação não encontrada.")
+    raise OpError(tr("Relação não encontrada."))
 
 
 # ----------------------------------------------------- colar / duplicar

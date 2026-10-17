@@ -6,7 +6,7 @@ import unicodedata
 from typing import TYPE_CHECKING, Callable, Optional
 
 from PySide6.QtCore import QSettings, QSize, Qt, QTimer
-from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
+from PySide6.QtGui import QAction, QCloseEvent, QIcon, QKeySequence
 from PySide6.QtWidgets import (
     QDockWidget, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox,
     QSizePolicy, QToolBar, QToolButton, QVBoxLayout, QWidget,
@@ -15,10 +15,10 @@ from PySide6.QtWidgets import (
 from mindforge import APP_NAME, FILE_EXTENSION, __version__
 from mindforge.document import Document
 from mindforge.export import ExportError, export_file
+from mindforge.i18n import N_, ntr, tr
 from mindforge.layouts import LAYOUTS
 from mindforge.model import ops
 from mindforge.storage import MindForgeFileError, save_map
-from mindforge.themes import visible_themes
 from mindforge.view.canvas import MindCanvas
 from mindforge.view.dialogs import ExportDialog, ShortcutsDialog, ask_export_path
 from mindforge.view import style
@@ -29,7 +29,8 @@ from mindforge.view.resources import app_icon
 if TYPE_CHECKING:
     from mindforge.app import MindForgeApp
 
-FILE_FILTER = f"Mapas {APP_NAME} (*{FILE_EXTENSION})"
+def file_filter() -> str:
+    return tr("Mapas {app} (*{ext})", app=APP_NAME, ext=FILE_EXTENSION)
 AUTOSAVE_MS = 60_000
 
 
@@ -48,9 +49,9 @@ class FindBar(QWidget):
         self.pos = -1
         lay = QHBoxLayout(self)
         lay.setContentsMargins(8, 4, 8, 4)
-        lay.addWidget(QLabel("Buscar:"))
+        lay.addWidget(QLabel(tr("Buscar:")))
         self.edit = QLineEdit()
-        self.edit.setPlaceholderText("Texto do tópico ou da nota (ignora acentos)")
+        self.edit.setPlaceholderText(tr("Texto do tópico ou da nota (ignora acentos)"))
         self.edit.setClearButtonEnabled(True)
         self.edit.textChanged.connect(self._search)
         self.edit.returnPressed.connect(self.next)
@@ -58,8 +59,8 @@ class FindBar(QWidget):
         lay.addWidget(self.edit, 1)
         self.count = QLabel()
         lay.addWidget(self.count)
-        for text, slot, tip in (("◀", self.prev, "Anterior (Shift+Enter)"), ("▶", self.next, "Próximo (Enter)"),
-                                ("✕", self.close_bar, "Fechar (Esc)")):
+        for text, slot, tip in (("◀", self.prev, tr("Anterior (Shift+Enter)")), ("▶", self.next, tr("Próximo (Enter)")),
+                                ("✕", self.close_bar, tr("Fechar (Esc)"))):
             b = QToolButton()
             b.setText(text)
             b.setToolTip(tip)
@@ -101,9 +102,9 @@ class FindBar(QWidget):
         if not self.edit.text().strip():
             self.count.setText("")
         elif not self.matches:
-            self.count.setText("nenhum resultado")
+            self.count.setText(tr("nenhum resultado"))
         else:
-            self.count.setText(f"{self.pos + 1 if self.pos >= 0 else 0} de {len(self.matches)}")
+            self.count.setText(tr("{i} de {n}", i=self.pos + 1 if self.pos >= 0 else 0, n=len(self.matches)))
 
     def _go(self, step: int) -> None:
         if not self.matches:
@@ -141,7 +142,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
 
         self.panel = FormatPanel()
-        self.dock = QDockWidget("Formatar", self)
+        self.dock = QDockWidget(tr("Formatar"), self)
         self.dock.setObjectName("dock_formatar")
         self.dock.setWidget(self.panel)
         self.dock.setTitleBarWidget(QWidget())          # painel "embutido", sem barra de título
@@ -176,6 +177,8 @@ class MainWindow(QMainWindow):
     def _act(self, text: str, slot: Callable, shortcuts=(), tip: str = "",
              checkable: bool = False) -> QAction:
         a = QAction(text, self)
+        # sem heurística do macOS: em inglês, textos como "Settings…"/"About" seriam movidos sozinhos
+        a.setMenuRole(QAction.MenuRole.NoRole)
         if shortcuts:
             a.setShortcuts([QKeySequence(s) if isinstance(s, str) else QKeySequence(s) for s in shortcuts])
         if tip:
@@ -221,112 +224,116 @@ class MainWindow(QMainWindow):
         c = self.canvas
         mb = self.menuBar()
         # ---------------------------------------------------------- Arquivo
-        m = mb.addMenu("&Arquivo")
-        self.a_new = self._act("Novo…", self.app.new_from_template, ["Ctrl+N"], "Novo mapa a partir de um modelo")
-        self.a_open = self._act("Abrir…", self.open_dialog, ["Ctrl+O"], "Abrir mapa")
+        m = mb.addMenu(tr("&Arquivo"))
+        self.a_new = self._act(tr("Novo…"), self.app.new_from_template, ["Ctrl+N"], tr("Novo mapa a partir de um modelo"))
+        self.a_open = self._act(tr("Abrir…"), self.open_dialog, ["Ctrl+O"], tr("Abrir mapa"))
         m.addAction(self.a_new)
         m.addAction(self.a_open)
-        self.recent_menu = m.addMenu("Abrir recente")
+        self.recent_menu = m.addMenu(tr("Abrir recente"))
         self.recent_menu.aboutToShow.connect(self._fill_recent)
         m.addSeparator()
-        self.a_save = self._act("Salvar", self.save, ["Ctrl+S"], "Salvar mapa")
-        self.a_save_as = self._act("Salvar como…", self.save_as, ["Ctrl+Shift+S"])
+        self.a_save = self._act(tr("Salvar"), self.save, ["Ctrl+S"], tr("Salvar mapa"))
+        self.a_save_as = self._act(tr("Salvar como…"), self.save_as, ["Ctrl+Shift+S"])
         m.addAction(self.a_save)
         m.addAction(self.a_save_as)
         m.addSeparator()
-        self.a_export = self._act("Exportar (PNG, SVG, PDF)…", self.export, ["Ctrl+E"])
+        self.a_export = self._act(tr("Exportar (PNG, SVG, PDF)…"), self.export, ["Ctrl+E"])
         m.addAction(self.a_export)
         m.addSeparator()
-        m.addAction(self._act("Fechar janela", self.close, ["Ctrl+W"]))
-        quit_a = self._act("Sair", self.app.quit_all, ["Ctrl+Q"])
+        m.addAction(self._act(tr("Fechar janela"), self.close, ["Ctrl+W"]))
+        quit_a = self._act(tr("Sair"), self.app.quit_all, ["Ctrl+Q"])
         quit_a.setMenuRole(QAction.MenuRole.QuitRole)
         m.addAction(quit_a)
 
         # ----------------------------------------------------------- Editar
-        e = mb.addMenu("&Editar")
-        self.a_undo = self._act("Desfazer", self.undo, ["Ctrl+Z"])
-        self.a_redo = self._act("Refazer", self.redo, ["Ctrl+Shift+Z", "Ctrl+Y"])
+        e = mb.addMenu(tr("&Editar"))
+        self.a_undo = self._act(tr("Desfazer"), self.undo, ["Ctrl+Z"])
+        self.a_redo = self._act(tr("Refazer"), self.redo, ["Ctrl+Shift+Z", "Ctrl+Y"])
         st = self.doc.undo_stack
         st.canUndoChanged.connect(self.a_undo.setEnabled)
         st.canRedoChanged.connect(self.a_redo.setEnabled)
         st.undoTextChanged.connect(self._on_undo_text)
         st.redoTextChanged.connect(self._on_redo_text)
-        self.a_undo.setEnabled(False)
-        self.a_redo.setEnabled(False)
+        # estado inicial vem da pilha (a janela pode ser recriada com histórico, ex.: troca de idioma)
+        self.a_undo.setEnabled(st.canUndo())
+        self.a_redo.setEnabled(st.canRedo())
+        self._on_undo_text(st.undoText())
+        self._on_redo_text(st.redoText())
         e.addAction(self.a_undo)
         e.addAction(self.a_redo)
         e.addSeparator()
-        for text, slot in (("Recortar  (Ctrl+X)", c.cut), ("Copiar  (Ctrl+C)", c.copy),
-                           ("Colar  (Ctrl+V)", c.paste), ("Duplicar  (Ctrl+D)", c.duplicate),
-                           ("Excluir  (Delete)", c.delete_selected),
-                           ("Selecionar todos  (Ctrl+A)", c.select_all)):
+        for text, slot in ((tr("Recortar  (Ctrl+X)"), c.cut), (tr("Copiar  (Ctrl+C)"), c.copy),
+                           (tr("Colar  (Ctrl+V)"), c.paste), (tr("Duplicar  (Ctrl+D)"), c.duplicate),
+                           (tr("Excluir  (Delete)"), c.delete_selected),
+                           (tr("Selecionar todos  (Ctrl+A)"), c.select_all)):
             e.addAction(self._act(_mac(text), slot))
         e.addSeparator()
-        e.addAction(self._act(_mac("Editar texto  (F2 / Espaço)"), lambda: c.start_edit()))
-        self.a_find = self._act("Buscar…", self.find_bar.open_bar, ["Ctrl+F"])
+        e.addAction(self._act(_mac(tr("Editar texto  (F2 / Espaço)")), lambda: c.start_edit()))
+        self.a_find = self._act(tr("Buscar…"), self.find_bar.open_bar, ["Ctrl+F"])
         e.addAction(self.a_find)
 
         # ----------------------------------------------------------- Inserir
-        i = mb.addMenu("&Inserir")
-        i.addAction(self._act("Subtópico  (Tab)", c.add_child))
-        i.addAction(self._act("Tópico irmão  (Enter)", lambda: c.add_sibling(False)))
-        i.addAction(self._act(_mac("Tópico irmão acima  (Shift+Enter)"), lambda: c.add_sibling(True)))
-        i.addAction(self._act(_mac("Tópico pai  (Ctrl+Enter)"), c.add_parent))
-        i.addAction(self._act("Tópico flutuante  (duplo clique no fundo)", lambda: c.add_floating()))
+        i = mb.addMenu(tr("&Inserir"))
+        i.addAction(self._act(tr("Subtópico  (Tab)"), c.add_child))
+        i.addAction(self._act(tr("Tópico irmão  (Enter)"), lambda: c.add_sibling(False)))
+        i.addAction(self._act(_mac(tr("Tópico irmão acima  (Shift+Enter)")), lambda: c.add_sibling(True)))
+        i.addAction(self._act(_mac(tr("Tópico pai  (Ctrl+Enter)")), c.add_parent))
+        i.addAction(self._act(tr("Tópico flutuante  (duplo clique no fundo)"), lambda: c.add_floating()))
         i.addSeparator()
-        i.addAction(self._act(_mac("Relação  (Ctrl+R)"), c.start_relation))
-        i.addAction(self._act("Nota", self._focus_note, ["Ctrl+Shift+N"]))
-        mk = i.addMenu("Marcador")
+        i.addAction(self._act(_mac(tr("Relação  (Ctrl+R)")), c.start_relation))
+        i.addAction(self._act(tr("Nota"), self._focus_note, ["Ctrl+Shift+N"]))
+        mk = i.addMenu(tr("Marcador"))
         from mindforge.view.painting import MARKER_LABELS
         from mindforge.view.resources import marker_icon
         for key in ops.ALL_MARKERS:
-            a = self._act(MARKER_LABELS[key], lambda k=key: self.panel._toggle_marker(k))
+            a = self._act(tr(MARKER_LABELS[key]), lambda k=key: self.panel._toggle_marker(k))
             a.setIcon(marker_icon(key))
             mk.addAction(a)
 
         # --------------------------------------------------------- Organizar
-        o = mb.addMenu("&Organizar")
-        o.addAction(self._act(_mac("Mover para cima  (Ctrl+↑)"), lambda: c.move_sibling(-1)))
-        o.addAction(self._act(_mac("Mover para baixo  (Ctrl+↓)"), lambda: c.move_sibling(1)))
+        o = mb.addMenu(tr("&Organizar"))
+        o.addAction(self._act(_mac(tr("Mover para cima  (Ctrl+↑)")), lambda: c.move_sibling(-1)))
+        o.addAction(self._act(_mac(tr("Mover para baixo  (Ctrl+↓)")), lambda: c.move_sibling(1)))
         o.addSeparator()
-        o.addAction(self._act(_mac("Recolher/expandir ramo  (Ctrl+/)"), lambda: c.toggle_collapse()))
-        o.addAction(self._act("Expandir tudo", lambda: c.set_collapsed_all(False), ["Ctrl+Shift+E"]))
-        o.addAction(self._act("Recolher tudo", lambda: c.set_collapsed_all(True), ["Ctrl+Shift+C"]))
+        o.addAction(self._act(_mac(tr("Recolher/expandir ramo  (Ctrl+/)")), lambda: c.toggle_collapse()))
+        o.addAction(self._act(tr("Expandir tudo"), lambda: c.set_collapsed_all(False), ["Ctrl+Shift+E"]))
+        o.addAction(self._act(tr("Recolher tudo"), lambda: c.set_collapsed_all(True), ["Ctrl+Shift+C"]))
         o.addSeparator()
-        self.layout_menu = o.addMenu("Esqueleto")
+        self.layout_menu = o.addMenu(tr("Esqueleto"))
         for key, lay in LAYOUTS.items():
-            a = self._act(lay.label, lambda k=key: self._set_layout(k), checkable=True)
+            a = self._act(tr(lay.label), lambda k=key: self._set_layout(k), checkable=True)
             a.setData(key)
             self.layout_menu.addAction(a)
-        self.theme_menu = o.addMenu("Tema")
-        for th in visible_themes():
-            key = th.key
-            a = self._act(th.label, lambda k=key: self._set_theme(k), checkable=True)
-            a.setData(key)
-            self.theme_menu.addAction(a)
+        self.theme_menu = o.addMenu(tr("Tema de cores"))
+        self.theme_menu.aboutToShow.connect(self._fill_theme_menu)
 
         # -------------------------------------------------------- Visualizar
-        v = mb.addMenu("&Visualizar")
-        v.addAction(self._act("Aumentar zoom", c.zoom_in, ["Ctrl+=", "Ctrl++"]))
-        v.addAction(self._act("Diminuir zoom", c.zoom_out, ["Ctrl+-"]))
-        v.addAction(self._act("Ajustar à tela", c.zoom_fit, ["Ctrl+0"]))
-        v.addAction(self._act("Tamanho real (100%)", c.zoom_reset, ["Ctrl+1"]))
+        v = mb.addMenu(tr("&Visualizar"))
+        v.addAction(self._act(tr("Aumentar zoom"), c.zoom_in, ["Ctrl+=", "Ctrl++"]))
+        v.addAction(self._act(tr("Diminuir zoom"), c.zoom_out, ["Ctrl+-"]))
+        v.addAction(self._act(tr("Ajustar à tela"), c.zoom_fit, ["Ctrl+0"]))
+        v.addAction(self._act(tr("Tamanho real (100%)"), c.zoom_reset, ["Ctrl+1"]))
         v.addSeparator()
         tv = self.dock.toggleViewAction()
-        tv.setText("Painel Estilo/Mapa")
+        tv.setText(tr("Painel Estilo/Mapa"))
         tv.setShortcut(QKeySequence("Ctrl+Shift+F"))
         self.addAction(tv)
         v.addAction(tv)
-        self.a_fullscreen = self._act("Tela cheia", self.toggle_fullscreen,
+        self.a_fullscreen = self._act(tr("Tela cheia"), self.toggle_fullscreen,
                                       [QKeySequence(QKeySequence.StandardKey.FullScreen)])
         v.addAction(self.a_fullscreen)
 
         # ------------------------------------------------------------- Ajuda
-        h = mb.addMenu("Aj&uda")
-        h.addAction(self._act("Atalhos de teclado", lambda: ShortcutsDialog(self).exec(), ["F1"]))
-        about = self._act(f"Sobre o {APP_NAME}", self._about)
+        h = mb.addMenu(tr("Aj&uda"))
+        h.addAction(self._act(tr("Atalhos de teclado"), lambda: ShortcutsDialog(self).exec(), ["F1"]))
+        about = self._act(tr("Sobre o {app}", app=APP_NAME), self._about)
         about.setMenuRole(QAction.MenuRole.AboutRole)
         h.addAction(about)
+        # No macOS o papel "Preferências" leva o item para o menu do app, logo abaixo de "Sobre".
+        self.a_settings = self._act(tr("Ajustes…"), self.show_settings,
+                                    [QKeySequence(QKeySequence.StandardKey.Preferences)])
+        self.a_settings.setMenuRole(QAction.MenuRole.PreferencesRole)
+        h.addAction(self.a_settings)
 
     def _tb_button(self, tb: QToolBar, icon_name: str, text: str, tip: str,
                    slot: Optional[Callable] = None, menu: Optional[QMenu] = None) -> QToolButton:
@@ -349,7 +356,7 @@ class MainWindow(QMainWindow):
         return b
 
     def _build_toolbar(self) -> None:
-        tb = QToolBar("Ferramentas")
+        tb = QToolBar(tr("Ferramentas"))
         tb.setObjectName("TopBar")
         tb.setMovable(False)
         tb.setFloatable(False)
@@ -358,34 +365,34 @@ class MainWindow(QMainWindow):
         c = self.canvas
 
         topic_menu = QMenu(self)
-        topic_menu.addAction("Tópico irmão  (Enter)", lambda: c.add_sibling(False))
-        topic_menu.addAction("Subtópico  (Tab)", c.add_child)
-        topic_menu.addAction(_mac("Tópico antes  (Shift+Enter)"), lambda: c.add_sibling(True))
-        topic_menu.addAction(_mac("Tópico pai  (Ctrl+Enter)"), c.add_parent)
+        topic_menu.addAction(tr("Tópico irmão  (Enter)"), lambda: c.add_sibling(False))
+        topic_menu.addAction(tr("Subtópico  (Tab)"), c.add_child)
+        topic_menu.addAction(_mac(tr("Tópico antes  (Shift+Enter)")), lambda: c.add_sibling(True))
+        topic_menu.addAction(_mac(tr("Tópico pai  (Ctrl+Enter)")), c.add_parent)
         topic_menu.addSeparator()
-        topic_menu.addAction("Tópico flutuante", lambda: c.add_floating())
-        self._tb_button(tb, "add_topic", "Tópico", "Inserir tópico (Enter)", lambda: c.add_sibling(False), topic_menu)
-        self._tb_button(tb, "subtopic", "Subtópico", "Inserir subtópico (Tab)", c.add_child)
-        self._tb_button(tb, "relation", "Relação", "Relação entre tópicos (Ctrl+R)", c.start_relation)
+        topic_menu.addAction(tr("Tópico flutuante"), lambda: c.add_floating())
+        self._tb_button(tb, "add_topic", tr("Tópico"), tr("Inserir tópico (Enter)"), lambda: c.add_sibling(False), topic_menu)
+        self._tb_button(tb, "subtopic", tr("Subtópico"), tr("Inserir subtópico (Tab)"), c.add_child)
+        self._tb_button(tb, "relation", tr("Relação"), tr("Relação entre tópicos (Ctrl+R)"), c.start_relation)
         from mindforge.view.painting import MARKER_LABELS
         from mindforge.view.resources import marker_icon
         mk_menu = QMenu(self)
         for key in ops.ALL_MARKERS:
-            mk_menu.addAction(marker_icon(key), MARKER_LABELS[key], lambda k=key: self.panel._toggle_marker(k))
-        self._tb_button(tb, "marker", "Marcador", "Adicionar marcador ao tópico", None, mk_menu)
-        self._tb_button(tb, "note", "Nota", "Nota do tópico (Ctrl+Shift+N)", self._focus_note)
+            mk_menu.addAction(marker_icon(key), tr(MARKER_LABELS[key]), lambda k=key: self.panel._toggle_marker(k))
+        self._tb_button(tb, "marker", tr("Marcador"), tr("Adicionar marcador ao tópico"), None, mk_menu)
+        self._tb_button(tb, "note", tr("Nota"), tr("Nota do tópico (Ctrl+Shift+N)"), self._focus_note)
 
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         tb.addWidget(spacer)
 
-        self._tb_button(tb, "undo", "Desfazer", "Desfazer (Ctrl+Z)", self.undo)
-        self._tb_button(tb, "redo", "Refazer", "Refazer (Ctrl+Shift+Z)", self.redo)
+        self._tb_button(tb, "undo", tr("Desfazer"), tr("Desfazer (Ctrl+Z)"), self.undo)
+        self._tb_button(tb, "redo", tr("Refazer"), tr("Refazer (Ctrl+Shift+Z)"), self.redo)
         tb.addSeparator()
-        self._tb_button(tb, "search", "Buscar", "Buscar (Ctrl+F)", self.find_bar.open_bar)
-        self._tb_button(tb, "export", "Exportar", "Exportar PNG, SVG ou PDF (Ctrl+E)", self.export)
-        self._tb_button(tb, "fullscreen", "Tela cheia", "Tela cheia", self.toggle_fullscreen)
-        self.panel_btn = self._tb_button(tb, "panel", "Painel", "Mostrar/ocultar painel (Ctrl+Shift+F)",
+        self._tb_button(tb, "search", tr("Buscar"), tr("Buscar (Ctrl+F)"), self.find_bar.open_bar)
+        self._tb_button(tb, "export", tr("Exportar"), tr("Exportar PNG, SVG ou PDF (Ctrl+E)"), self.export)
+        self._tb_button(tb, "fullscreen", tr("Tela cheia"), tr("Tela cheia"), self.toggle_fullscreen)
+        self.panel_btn = self._tb_button(tb, "panel", tr("Painel"), tr("Mostrar/ocultar painel (Ctrl+Shift+F)"),
                                          lambda: self.dock.setVisible(not self.dock.isVisible()))
         self.panel_btn.setCheckable(True)
         self.panel_btn.setChecked(True)
@@ -399,7 +406,7 @@ class MainWindow(QMainWindow):
         c = self.canvas
         out_b = QToolButton()
         out_b.setText("−")
-        out_b.setToolTip(_mac("Diminuir zoom (Ctrl+-)"))
+        out_b.setToolTip(_mac(tr("Diminuir zoom (Ctrl+-)")))
         out_b.clicked.connect(c.zoom_out)
         self.zoom_btn = QToolButton()
         self.zoom_btn.setText("100%")
@@ -408,15 +415,15 @@ class MainWindow(QMainWindow):
         for z in (50, 75, 100, 125, 150, 200, 300):
             zm.addAction(f"{z}%", lambda z=z: c.set_zoom(z / 100, True))
         zm.addSeparator()
-        zm.addAction(_mac("Ajustar à tela  (Ctrl+0)"), c.zoom_fit)
+        zm.addAction(_mac(tr("Ajustar à tela  (Ctrl+0)")), c.zoom_fit)
         self.zoom_btn.setMenu(zm)
         self.zoom_btn.setMinimumWidth(52)
         in_b = QToolButton()
         in_b.setText("+")
-        in_b.setToolTip(_mac("Aumentar zoom (Ctrl+=)"))
+        in_b.setToolTip(_mac(tr("Aumentar zoom (Ctrl+=)")))
         in_b.clicked.connect(c.zoom_in)
         self.fit_btn = QToolButton()
-        self.fit_btn.setToolTip(_mac("Ajustar à tela (Ctrl+0)"))
+        self.fit_btn.setToolTip(_mac(tr("Ajustar à tela (Ctrl+0)")))
         self.fit_btn.clicked.connect(c.zoom_fit)
         for w in (out_b, self.zoom_btn, in_b, self.fit_btn):
             sb.addPermanentWidget(w)
@@ -439,13 +446,12 @@ class MainWindow(QMainWindow):
     # ================================================================ estado
     def _on_doc_changed(self) -> None:
         n = self.doc.map.count()
-        self.count_label.setText(f"{n} tópico{'s' if n != 1 else ''}")
-        for menu, value in ((self.layout_menu, self.doc.map.layout), (self.theme_menu, self.doc.map.theme)):
-            for a in menu.actions():
-                a.setChecked(a.data() == value)
+        self.count_label.setText(ntr("{n} tópico", "{n} tópicos", n))
+        for a in self.layout_menu.actions():
+            a.setChecked(a.data() == self.doc.map.layout)
 
     def _update_title(self) -> None:
-        name = os.path.basename(self.doc.path) if self.doc.path else "Sem título"
+        name = os.path.basename(self.doc.path) if self.doc.path else tr("Sem título")
         self.setWindowTitle(f"{name}[*] — {APP_NAME}")
         self.setWindowModified(self.doc.is_modified())
         if self.doc.path:
@@ -453,12 +459,31 @@ class MainWindow(QMainWindow):
 
     def _set_layout(self, key: str) -> None:
         self.canvas.commit_edit()
-        self.doc.apply("Mudar estrutura", lambda m: ops.set_layout(m, key))
+        self.doc.apply(N_("Mudar estrutura"), lambda m: ops.set_layout(m, key))
         QTimer.singleShot(0, self.canvas.zoom_fit)
 
-    def _set_theme(self, key: str) -> None:
-        self.canvas.commit_edit()
-        self.doc.apply("Mudar tema", lambda m: ops.set_theme(m, key))
+    def _fill_theme_menu(self) -> None:
+        from mindforge import colorthemes as ct
+        from mindforge.view.colorpanel import palette_name, palette_store, strip_pixmap
+        menu = self.theme_menu
+        menu.clear()
+        cur = ct.current_palette(self.doc.map)
+        groups = ((tr("A Minha Cor"), palette_store().palettes), (tr("Colorido"), ct.COLORIDO),
+                  (tr("Clássico"), ct.CLASSICO))
+        for title, pals in groups:
+            if not pals:
+                continue
+            menu.addSection(title)
+            for p in pals:
+                a = menu.addAction(QIcon(strip_pixmap(p.colors, QSize(60, 14), 3)), palette_name(p))
+                a.setCheckable(True)
+                a.setChecked(cur is not None and cur.id == p.id)
+                a.setMenuRole(QAction.MenuRole.NoRole)
+                a.triggered.connect(lambda _c=False, pal=p: self.panel._apply_colors(
+                    pal.as_setting(), None if ct.current_palette(self.doc.map) else 0))
+        menu.addSeparator()
+        new = menu.addAction(tr("Criar novo tema de cores…"), lambda: self.panel._edit_palette(None))
+        new.setMenuRole(QAction.MenuRole.NoRole)
 
     def _focus_note(self) -> None:
         self.dock.show()
@@ -466,13 +491,13 @@ class MainWindow(QMainWindow):
 
     def _on_undo_text(self, t: str) -> None:
         try:
-            self.a_undo.setText(f"Desfazer {t}".strip())
+            self.a_undo.setText(tr("Desfazer {acao}", acao=tr(t)).strip() if t else tr("Desfazer"))
         except RuntimeError:
             pass
 
     def _on_redo_text(self, t: str) -> None:
         try:
-            self.a_redo.setText(f"Refazer {t}".strip())
+            self.a_redo.setText(tr("Refazer {acao}", acao=tr(t)).strip() if t else tr("Refazer"))
         except RuntimeError:
             pass
 
@@ -488,51 +513,51 @@ class MainWindow(QMainWindow):
         c = self.canvas
         menu = QMenu(self)
         if tid:
-            menu.addAction("Novo subtópico  (Tab)", c.add_child)
-            menu.addAction("Novo tópico irmão  (Enter)", lambda: c.add_sibling(False))
-            menu.addAction("Editar texto  (F2)", lambda: c.start_edit(tid))
-            menu.addAction("Nota…", self._focus_note)
+            menu.addAction(tr("Novo subtópico  (Tab)"), c.add_child)
+            menu.addAction(tr("Novo tópico irmão  (Enter)"), lambda: c.add_sibling(False))
+            menu.addAction(tr("Editar texto  (F2)"), lambda: c.start_edit(tid))
+            menu.addAction(tr("Nota…"), self._focus_note)
             menu.addSeparator()
-            menu.addAction("Recolher / expandir", lambda: c.toggle_collapse())
-            menu.addAction("Relação a partir daqui", c.start_relation)
+            menu.addAction(tr("Recolher / expandir"), lambda: c.toggle_collapse())
+            menu.addAction(tr("Relação a partir daqui"), c.start_relation)
             menu.addSeparator()
-            menu.addAction("Copiar", c.copy)
-            menu.addAction("Recortar", c.cut)
-            menu.addAction("Colar como subtópico", c.paste)
-            menu.addAction("Duplicar", c.duplicate)
+            menu.addAction(tr("Copiar"), c.copy)
+            menu.addAction(tr("Recortar"), c.cut)
+            menu.addAction(tr("Colar como subtópico"), c.paste)
+            menu.addAction(tr("Duplicar"), c.duplicate)
             t = self.doc.map.find(tid)
             if t is not None and t.parent is not None:
-                menu.addAction("Tornar tópico flutuante", lambda: self._detach(tid))
+                menu.addAction(tr("Tornar tópico flutuante"), lambda: self._detach(tid))
             menu.addSeparator()
-            menu.addAction("Excluir", c.delete_selected)
+            menu.addAction(tr("Excluir"), c.delete_selected)
         elif c.mscene.selected_relation_ids():
             rid = c.mscene.selected_relation_ids()[0]
-            menu.addAction("Editar rótulo…", lambda: c.edit_relation_label(rid))
-            menu.addAction("Excluir relação", c.delete_selected)
+            menu.addAction(tr("Editar rótulo…"), lambda: c.edit_relation_label(rid))
+            menu.addAction(tr("Excluir relação"), c.delete_selected)
         else:
             pos = c.mapToScene(c.mapFromGlobal(global_pos))
-            menu.addAction("Novo tópico flutuante aqui", lambda: c.add_floating(pos))
-            menu.addAction("Colar", c.paste)
+            menu.addAction(tr("Novo tópico flutuante aqui"), lambda: c.add_floating(pos))
+            menu.addAction(tr("Colar"), c.paste)
             menu.addSeparator()
-            menu.addAction("Ajustar à tela", c.zoom_fit)
-            menu.addAction("Expandir tudo", lambda: c.set_collapsed_all(False))
+            menu.addAction(tr("Ajustar à tela"), c.zoom_fit)
+            menu.addAction(tr("Expandir tudo"), lambda: c.set_collapsed_all(False))
         menu.exec(global_pos)
 
     def _detach(self, tid: str) -> None:
         it = self.canvas.mscene.topic_items.get(tid)
         p = it.pos() if it else None
         x, y = (p.x() + 40, p.y() + 40) if p is not None else (0, 0)
-        self.doc.apply("Tornar flutuante", lambda m: ops.detach_to_floating(m, tid, x, y), select=[tid])
+        self.doc.apply(N_("Tornar flutuante"), lambda m: ops.detach_to_floating(m, tid, x, y), select=[tid])
 
     def _about(self) -> None:
-        QMessageBox.about(self, f"Sobre o {APP_NAME}",
-                          f"<b>{APP_NAME} {__version__}</b><br>Editor de mapas mentais.<br><br>"
-                          "Feito em Python + PySide6 (Qt).")
+        QMessageBox.about(self, tr("Sobre o {app}", app=APP_NAME),
+                          f"<b>{APP_NAME} {__version__}</b><br>" +
+                          tr("Editor de mapas mentais.<br><br>Feito em Python + PySide6 (Qt)."))
 
     # =============================================================== arquivo
     def open_dialog(self) -> None:
         folder = QSettings().value("files/dir", os.path.expanduser("~"))
-        path, _ = QFileDialog.getOpenFileName(self, "Abrir mapa", folder, FILE_FILTER)
+        path, _ = QFileDialog.getOpenFileName(self, tr("Abrir mapa"), folder, file_filter())
         if path:
             QSettings().setValue("files/dir", os.path.dirname(path))
             self.app.open_path(path, self)
@@ -541,13 +566,14 @@ class MainWindow(QMainWindow):
         self.recent_menu.clear()
         files = self.app.recent_files()
         if not files:
-            a = self.recent_menu.addAction("(nenhum)")
+            a = self.recent_menu.addAction(tr("(nenhum)"))
             a.setEnabled(False)
             return
         for p in files:
-            self.recent_menu.addAction(os.path.basename(p), lambda p=p: self.app.open_path(p, self))
+            ra = self.recent_menu.addAction(os.path.basename(p), lambda p=p: self.app.open_path(p, self))
+            ra.setMenuRole(QAction.MenuRole.NoRole)     # "setup.mfmap" não pode virar "Preferências" no Mac
         self.recent_menu.addSeparator()
-        self.recent_menu.addAction("Limpar lista", self.app.clear_recent)
+        self.recent_menu.addAction(tr("Limpar lista"), self.app.clear_recent)
 
     def save(self) -> bool:
         self.canvas.commit_edit()
@@ -561,7 +587,7 @@ class MainWindow(QMainWindow):
         self.panel._commit_note()
         folder = QSettings().value("files/dir", os.path.expanduser("~"))
         base = self.doc.path or os.path.join(folder, _safe_name(self.doc.map.root.text) + FILE_EXTENSION)
-        path, _ = QFileDialog.getSaveFileName(self, "Salvar mapa como", base, FILE_FILTER)
+        path, _ = QFileDialog.getSaveFileName(self, tr("Salvar mapa como"), base, file_filter())
         if not path:
             return False
         if not path.lower().endswith(FILE_EXTENSION):
@@ -573,20 +599,22 @@ class MainWindow(QMainWindow):
         try:
             save_map(self.doc.map, path)
         except MindForgeFileError as exc:
-            QMessageBox.critical(self, "Erro ao salvar", str(exc))
+            QMessageBox.critical(self, tr("Erro ao salvar"), str(exc))
             return False
         self.doc.mark_saved(path)
         self.app.recovery.remove(self.doc.uid)
         self.app.add_recent(path)
         self._update_title()
-        self.statusBar().showMessage(f"Salvo em {path}", 5000)
+        self.statusBar().showMessage(tr("Salvo em {path}", path=path), 5000)
         return True
 
     def export(self) -> None:
         c = self.canvas
         c.commit_edit()
         sel = ops.top_level_selection(self.doc.map, c.mscene.selected_topic_ids())
-        dlg = ExportDialog(self, has_selection=bool(sel))
+        from mindforge.themes import is_dark
+        dlg = ExportDialog(self, has_selection=bool(sel),
+                           dark_background=is_dark(self.canvas.mscene.background_color))
         if not dlg.exec():
             return
         opt = dlg.options()
@@ -603,17 +631,17 @@ class MainWindow(QMainWindow):
         try:
             res = export_file(c.mscene, path, opt)
         except ExportError as exc:
-            QMessageBox.warning(self, "Exportação", str(exc))
+            QMessageBox.warning(self, tr("Exportação"), str(exc))
             return
         except Exception as exc:  # erro inesperado: nunca derrubar o app
-            QMessageBox.critical(self, "Exportação", f"Falha inesperada ao exportar:\n{exc}")
+            QMessageBox.critical(self, tr("Exportação"), tr("Falha inesperada ao exportar:\n{erro}", erro=exc))
             return
-        msg = f"Exportado: {os.path.basename(path)}"
+        msg = tr("Exportado: {arquivo}", arquivo=os.path.basename(path))
         if opt.fmt == "png":
             msg += f" ({res.width}×{res.height} px)"
         self.statusBar().showMessage(msg, 8000)
         if res.notes:
-            QMessageBox.information(self, "Exportação", "\n".join(res.notes))
+            QMessageBox.information(self, tr("Exportação"), "\n".join(res.notes))
 
     # ============================================================ autosave
     def autosave(self) -> None:
@@ -634,12 +662,12 @@ class MainWindow(QMainWindow):
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Icon.Warning)
         box.setWindowTitle(APP_NAME)
-        name = os.path.basename(self.doc.path) if self.doc.path else "Sem título"
-        box.setText(f"Deseja salvar as alterações em “{name}”?")
-        box.setInformativeText("Se não salvar, as alterações serão perdidas.")
-        save = box.addButton("Salvar", QMessageBox.ButtonRole.AcceptRole)
-        discard = box.addButton("Não salvar", QMessageBox.ButtonRole.DestructiveRole)
-        box.addButton("Cancelar", QMessageBox.ButtonRole.RejectRole)
+        name = os.path.basename(self.doc.path) if self.doc.path else tr("Sem título")
+        box.setText(tr("Deseja salvar as alterações em “{nome}”?", nome=name))
+        box.setInformativeText(tr("Se não salvar, as alterações serão perdidas."))
+        save = box.addButton(tr("Salvar"), QMessageBox.ButtonRole.AcceptRole)
+        discard = box.addButton(tr("Não salvar"), QMessageBox.ButtonRole.DestructiveRole)
+        box.addButton(tr("Cancelar"), QMessageBox.ButtonRole.RejectRole)
         box.setDefaultButton(save)
         box.exec()
         clicked = box.clickedButton()
@@ -647,7 +675,62 @@ class MainWindow(QMainWindow):
             return self.save()
         return clicked is discard
 
+    def show_settings(self) -> None:
+        from mindforge.i18n import language
+        from mindforge.view.dialogs import SettingsDialog
+        dlg = SettingsDialog(language(), self)
+        if dlg.exec():
+            code = dlg.selected_language()
+            if code != language():
+                # adiado: a janela atual (dona do diálogo) será recriada
+                QTimer.singleShot(0, lambda: self.app.set_language(code))
+
+    # ------------------------------------------------- troca de idioma
+    def view_state(self) -> dict:
+        """Estado visual para recriar a janela sem o usuário perceber."""
+        self.canvas.commit_edit()
+        self.panel._commit_note()
+        return {
+            "geometry": self.saveGeometry(),
+            "pos": self.pos(),
+            "size": self.size(),
+            "max": self.isMaximized(),
+            "state": self.saveState(),
+            "full": self.isFullScreen(),
+            "zoom": self.canvas.zoom,
+            "h": self.canvas.horizontalScrollBar().value(),
+            "v": self.canvas.verticalScrollBar().value(),
+            "sel": list(self.canvas.mscene.selected_topic_ids()),
+            "dock": self.dock.isVisible(),
+            "autosave_rev": self._autosave_rev,
+        }
+
+    def restore_view_state(self, st: dict) -> None:
+        self.restoreGeometry(st["geometry"])
+        if not st["max"]:
+            self.resize(st["size"])
+            self.move(st["pos"])
+        self.restoreState(st["state"])
+        self.dock.setVisible(st["dock"])
+        self._autosave_rev = st["autosave_rev"]
+        if st["sel"]:
+            self.canvas.mscene.select_ids(st["sel"])
+        self.canvas.set_zoom(st["zoom"])
+        # as barras só aceitam o valor depois que o layout da janela nova assentou
+        QTimer.singleShot(0, lambda: (self.canvas.horizontalScrollBar().setValue(st["h"]),
+                                      self.canvas.verticalScrollBar().setValue(st["v"])))
+
+    def close_for_rebuild(self) -> None:
+        """Fecha sem perguntar nada: o documento continua aberto na janela nova."""
+        self._rebuilding = True
+        self.close()
+
     def closeEvent(self, e: QCloseEvent) -> None:
+        if getattr(self, "_rebuilding", False):
+            self.autosave_timer.stop()
+            self.app.window_closed(self)
+            e.accept()
+            return
         if not self.maybe_save():
             e.ignore()
             return

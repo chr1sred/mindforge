@@ -13,6 +13,7 @@ import tempfile
 from typing import Callable
 
 from mindforge import __version__
+from mindforge.i18n import tr
 from mindforge.model.topic import SCHEMA_VERSION, MindMap
 
 FORMAT_ID = "mindforge"
@@ -38,24 +39,24 @@ def map_to_document(m: MindMap) -> dict:
 
 def document_to_map(data: dict) -> MindMap:
     if not isinstance(data, dict) or data.get("format") != FORMAT_ID:
-        raise MindForgeFileError("Este arquivo não é um mapa do MindForge.")
+        raise MindForgeFileError(tr("Este arquivo não é um mapa do MindForge."))
     version = data.get("schema_version", 1)
     if not isinstance(version, int):
-        raise MindForgeFileError("Versão do arquivo inválida.")
+        raise MindForgeFileError(tr("Versão do arquivo inválida."))
     if version > SCHEMA_VERSION:
         raise MindForgeFileError(
-            "Este mapa foi criado por uma versão mais nova do MindForge. "
-            "Atualize o aplicativo para abri-lo.")
+            tr("Este mapa foi criado por uma versão mais nova do MindForge. "
+               "Atualize o aplicativo para abri-lo."))
     while version < SCHEMA_VERSION:
         migrate = MIGRATIONS.get(version)
         if migrate is None:
-            raise MindForgeFileError(f"Não há migração para a versão {version} do arquivo.")
+            raise MindForgeFileError(tr("Não há migração para a versão {v} do arquivo.", v=version))
         data = migrate(data)
         version += 1
     try:
         return MindMap.from_dict(data["map"])
     except (KeyError, TypeError, ValueError, IndexError) as exc:
-        raise MindForgeFileError(f"O arquivo está corrompido ou incompleto ({exc}).") from exc
+        raise MindForgeFileError(tr("O arquivo está corrompido ou incompleto ({erro}).", erro=exc)) from exc
 
 
 def atomic_write_text(path: str, text: str) -> None:
@@ -80,7 +81,7 @@ def save_map(m: MindMap, path: str) -> None:
     try:
         atomic_write_text(path, text)
     except OSError as exc:
-        raise MindForgeFileError(f"Não foi possível salvar o arquivo:\n{exc.strerror or exc}") from exc
+        raise MindForgeFileError(tr("Não foi possível salvar o arquivo:\n{erro}", erro=exc.strerror or exc)) from exc
 
 
 def load_map(path: str) -> MindMap:
@@ -88,11 +89,11 @@ def load_map(path: str) -> MindMap:
         with open(path, "r", encoding="utf-8-sig") as fh:
             data = json.load(fh)
     except FileNotFoundError as exc:
-        raise MindForgeFileError("Arquivo não encontrado.") from exc
+        raise MindForgeFileError(tr("Arquivo não encontrado.")) from exc
     except UnicodeDecodeError as exc:
-        raise MindForgeFileError("O arquivo não está em UTF-8 — não parece um mapa do MindForge.") from exc
+        raise MindForgeFileError(tr("O arquivo não está em UTF-8 — não parece um mapa do MindForge.")) from exc
     except json.JSONDecodeError as exc:
-        raise MindForgeFileError(f"O arquivo está corrompido (JSON inválido na linha {exc.lineno}).") from exc
+        raise MindForgeFileError(tr("O arquivo está corrompido (JSON inválido na linha {linha}).", linha=exc.lineno)) from exc
     except OSError as exc:
-        raise MindForgeFileError(f"Não foi possível abrir o arquivo:\n{exc.strerror or exc}") from exc
+        raise MindForgeFileError(tr("Não foi possível abrir o arquivo:\n{erro}", erro=exc.strerror or exc)) from exc
     return document_to_map(data)

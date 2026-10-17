@@ -5,6 +5,7 @@ from typing import Callable
 
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
+from mindforge.i18n import tr
 
 S = 24.0   # grade de desenho
 
@@ -237,7 +238,7 @@ def shape_icon(shape: str, color: str, fill: str, w: int = 34, h: int = 22) -> Q
             f.setPixelSize(10)
             f.setBold(True)
             p.setFont(f)
-            p.drawText(QRectF(0, 0, w, h), int(Qt.AlignmentFlag.AlignCenter), "Auto")
+            p.drawText(QRectF(0, 0, w, h), int(Qt.AlignmentFlag.AlignCenter), tr("Auto"))
         elif shape in ("sublinhado", "sublinhado_duplo"):
             p.setPen(_pen(col, 1.6))
             p.drawLine(QPointF(r.left(), r.bottom()), QPointF(r.right(), r.bottom()))
@@ -314,7 +315,7 @@ def pattern_icon(pattern: str, color: str, w: int = 56, h: int = 14) -> QIcon:
             f = p.font()
             f.setPixelSize(10)
             p.setFont(f)
-            p.drawText(QRectF(0, 0, w, h), int(Qt.AlignmentFlag.AlignCenter), "Nenhum")
+            p.drawText(QRectF(0, 0, w, h), int(Qt.AlignmentFlag.AlignCenter), tr("Nenhum"))
             return
         p.setPen(pattern_pen(QColor(color), 1.8, pattern))
         p.drawLine(QPointF(3, h / 2), QPointF(w - 3, h / 2))

@@ -1,6 +1,8 @@
 """Componentes de interface reutilizáveis (estilo XMind)."""
 from __future__ import annotations
 
+import json
+
 from typing import Optional
 
 from PySide6.QtCore import QPoint, QSize, Qt, Signal
@@ -10,6 +12,7 @@ from PySide6.QtWidgets import (
     QToolButton, QVBoxLayout, QWidget,
 )
 
+from mindforge.i18n import N_, language, tr
 from mindforge.layouts import LAYOUTS
 from mindforge.model.topic import MindMap, Topic
 from mindforge.view import style
@@ -21,8 +24,8 @@ PRESET_COLORS = [
 ]
 
 # Sentinelas do seletor de cor
-NO_COLOR = ""          # "Sem cor"
-THEME_DEFAULT = None   # "Padrão do tema"
+NO_COLOR = ""          # tr("Sem cor")
+THEME_DEFAULT = None   # tr("Padrão do tema")
 
 
 def swatch_pixmap(color: Optional[str], w: int = 22, h: int = 16, radius: float = 4) -> QPixmap:
@@ -47,7 +50,7 @@ def swatch_pixmap(color: Optional[str], w: int = 22, h: int = 16, radius: float 
 class ColorPopup(QFrame):
     picked = Signal(object)       # str | "" (sem cor) | None (padrão do tema)
 
-    def __init__(self, parent: QWidget, current: Optional[str], allow_none: bool):
+    def __init__(self, parent: QWidget, current: Optional[str], allow_none: bool, show_default: bool = True):
         super().__init__(parent, Qt.WindowType.Popup)
         self.setObjectName("Popup")
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
@@ -69,13 +72,14 @@ class ColorPopup(QFrame):
         lay.addLayout(grid)
         row = QHBoxLayout()
         if allow_none:
-            none = QPushButton("Sem cor")
+            none = QPushButton(tr("Sem cor"))
             none.clicked.connect(lambda: self._emit(NO_COLOR))
             row.addWidget(none)
-        default = QPushButton("Padrão do tema")
-        default.clicked.connect(lambda: self._emit(THEME_DEFAULT))
-        row.addWidget(default)
-        more = QPushButton("Mais cores…")
+        if show_default:
+            default = QPushButton(tr("Padrão do tema"))
+            default.clicked.connect(lambda: self._emit(THEME_DEFAULT))
+            row.addWidget(default)
+        more = QPushButton(tr("Mais cores…"))
         more.clicked.connect(self._custom)
         row.addWidget(more)
         lay.addLayout(row)
@@ -87,7 +91,7 @@ class ColorPopup(QFrame):
 
     def _custom(self) -> None:
         self.hide()
-        c = QColorDialog.getColor(QColor(self._current or "#FFFFFF"), self.parentWidget(), "Escolher cor")
+        c = QColorDialog.getColor(QColor(self._current or "#FFFFFF"), self.parentWidget(), tr("Escolher cor"))
         if c.isValid():
             self.picked.emit(c.name().upper())
         self.close()
@@ -170,12 +174,11 @@ class Segmented(QFrame):
 
 # ------------------------------------------------------------- miniaturas
 def sample_map(layout: str, theme: str) -> MindMap:
-    root = Topic("Tema central")
-    n = 4 if layout != "espinha_peixe" else 4
-    for i in range(n):
-        c = root.add_child(Topic(f"Tópico {i + 1}"))
-        for j in range(2):
-            c.add_child(Topic("Subtópico"))
+    root = Topic(tr("Tema central"))
+    for i in range(4):
+        c = root.add_child(Topic(tr("Tópico {n}", n=i + 1)))
+        for _j in range(2):
+            c.add_child(Topic(tr("Subtópico")))
     return MindMap(root, layout, theme)
 
 
@@ -183,7 +186,8 @@ _THUMBS: dict[tuple, QPixmap] = {}
 
 
 def thumbnail(layout: str, theme: str, size: QSize, settings: Optional[dict] = None) -> QPixmap:
-    key = (layout, theme, size.width(), size.height(), tuple(sorted((settings or {}).items())))
+    key = (language(), layout, theme, size.width(), size.height(),
+           json.dumps(settings or {}, sort_keys=True, default=str))
     pm = _THUMBS.get(key)
     if pm is None:
         from mindforge.view.resources import render_thumbnail
@@ -195,11 +199,11 @@ def thumbnail(layout: str, theme: str, size: QSize, settings: Optional[dict] = N
 
 
 SKELETON_GROUPS = [
-    ("Mapa de ideias", ["mapa_mental"]),
-    ("Gráfico de lógica", ["mapa_direita", "mapa_esquerda"]),
-    ("Estrutura", ["organograma", "arvore"]),
-    ("Linha do tempo", ["linha_tempo"]),
-    ("Espinha de peixe", ["espinha_peixe"]),
+    (N_("Mapa de ideias"), ["mapa_mental"]),
+    (N_("Gráfico de lógica"), ["mapa_direita", "mapa_esquerda"]),
+    (N_("Estrutura"), ["organograma", "arvore"]),
+    (N_("Linha do tempo"), ["linha_tempo"]),
+    (N_("Espinha de peixe"), ["espinha_peixe"]),
 ]
 
 
@@ -219,7 +223,7 @@ class SkeletonPopup(QFrame):
         grid.setVerticalSpacing(6)
         r = 0
         for title, keys in SKELETON_GROUPS:
-            grid.addWidget(section_title(title), r, 0, 1, 3)
+            grid.addWidget(section_title(tr(title)), r, 0, 1, 3)
             r += 1
             for i, key in enumerate(keys):
                 b = QToolButton()
@@ -228,7 +232,7 @@ class SkeletonPopup(QFrame):
                 b.setChecked(key == current)
                 b.setIcon(QIcon(thumbnail(key, "_esqueleto", self.THUMB)))
                 b.setIconSize(self.THUMB)
-                b.setToolTip(LAYOUTS[key].label)
+                b.setToolTip(tr(LAYOUTS[key].label))
                 b.setCursor(Qt.CursorShape.PointingHandCursor)
                 b.clicked.connect(lambda _c=False, k=key: self._pick(k))
                 grid.addWidget(b, r, i)
@@ -344,13 +348,13 @@ class IconPickerButton(QToolButton):
     picked = Signal(object)
 
     def __init__(self, items_factory, columns: int = 2, icon_size: QSize = QSize(44, 28),
-                 default_label: Optional[str] = "Padrão", parent=None):
+                 default_label: Optional[str] = N_("Padrão"), parent=None):
         super().__init__(parent)
         self.setObjectName("Swatch")
         self.items_factory = items_factory
         self.columns = columns
         self.grid_icon = icon_size
-        self.default_label = default_label
+        self.default_label = tr(default_label) if default_label else default_label
         self.current = None
         self.setIconSize(QSize(34, 20))
         self.setCursor(Qt.CursorShape.PointingHandCursor)

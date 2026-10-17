@@ -6,20 +6,23 @@ seleção. Tópicos são identificados pelo id, nunca pelo objeto Python.
 """
 from __future__ import annotations
 
+import time
 from contextlib import contextmanager
 from dataclasses import replace
 from typing import Iterable, Iterator, Optional
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPen
-from PySide6.QtWidgets import QGraphicsScene, QGraphicsSceneMouseEvent
+from PySide6.QtGui import QCursor
+from PySide6.QtWidgets import QApplication, QGraphicsScene, QGraphicsSceneMouseEvent
 
 from mindforge.document import Document
 from mindforge.layouts import LayoutResult, Metric, get_layout
 from mindforge.layouts.base import layout_options, spacing
 from mindforge.model.topic import Topic
-from mindforge.themes import branch_color, get_theme, resolve_style
-from mindforge.view.items import ConnectorItem, RelationItem, TopicItem
+from mindforge.colorthemes import branch_colors_for, effective_theme
+from mindforge.themes import resolve_style
+from mindforge.view.items import CollapseHandle, ConnectorItem, RelationItem, TopicItem
 from mindforge.view.branches import draw_group
 from mindforge.view.painting import TopicVisual, build_visual, connector_path, pattern_pen
 
@@ -31,6 +34,7 @@ COMPACT_SPACING = 0.6
 class MindScene(QGraphicsScene):
     edit_requested = Signal(str)
     collapse_requested = Signal(str)
+    expand_all_requested = Signal(str)
     topics_dropped = Signal(list, str)          # ids arrastados, id do novo pai
     floating_moved = Signal(list)               # [(id, x, y)]
     background_double_clicked = Signal(QPointF)
@@ -52,22 +56,24 @@ class MindScene(QGraphicsScene):
         self.selection_color = "#2F80ED"
         self._drag: Optional[dict] = None
         self._bounds = QRectF()
+        self.view_scale = 1.0               # zoom da tela (área mínima de clique do ⊖)
+        self.last_handle_click = 0.0        # protege contra "duplo clique no fundo" logo após clicar no ⊖
         self.setItemIndexMethod(QGraphicsScene.ItemIndexMethod.BspTreeIndex)
 
     # ================================================================ sincronizar
     def sync(self, text_overrides: Optional[dict[str, str]] = None) -> None:
         m = self.doc.map
-        theme = get_theme(m.theme)
+        theme = effective_theme(m)          # tema de cores (1.3) ou tema antigo
         layout = get_layout(m.layout)
         self.background_color = m.setting("background") or theme.background
         self.selection_color = theme.selection_color
         overrides = text_overrides or {}
         family = m.setting("font") or theme.font_family
         lw = LINE_WIDTH_FACTOR.get(m.setting("line_width"), 1.0)
-        rainbow = bool(m.setting("rainbow"))
+        branch_cols, _rainbow = branch_colors_for(m, theme)
 
         def color_for(i: int) -> str:
-            return branch_color(theme, i) if rainbow else theme.mono
+            return branch_cols[i % len(branch_cols)]
 
         visuals: dict[str, TopicVisual] = {}
         metrics: dict[str, Metric] = {}
@@ -86,6 +92,7 @@ class MindScene(QGraphicsScene):
                 vis.level = level
                 if t.collapsed and t.children:
                     vis.collapsed_count = t.descendant_count()
+                vis.has_children = bool(t.children)
                 visuals[t.id] = vis
                 metrics[t.id] = Metric(vis.w, vis.h, vis.ay)
                 for i, c in enumerate(t.visible_children()):
@@ -192,8 +199,29 @@ class MindScene(QGraphicsScene):
 
         self._sync_relations(theme.relation_color)
         self._update_scene_rect()
+        self._restore_handle_hover()
         self.update()
         self.synced.emit()
+
+    def _cursor_scene_pos(self) -> Optional[QPointF]:
+        for v in self.views():
+            vp = v.viewport()
+            local = vp.mapFromGlobal(QCursor.pos())
+            if vp.rect().contains(local):
+                return v.mapToScene(local)
+        return None
+
+    def _restore_handle_hover(self) -> None:
+        """Depois de redesenhar (ex.: recolher pelo clique), o controle sob o mouse continua aceso."""
+        pos = self._cursor_scene_pos()
+        for it in self.topic_items.values():
+            h = it.handle
+            if pos is not None and it.has_toggle():
+                h.hovered = h.shape().contains(h.mapFromScene(pos))
+            it.update_handle()
+
+    def set_view_scale(self, scale: float) -> None:
+        self.view_scale = max(0.01, float(scale))
 
     def _sync_relations(self, color: str) -> None:
         m = self.doc.map
@@ -229,6 +257,11 @@ class MindScene(QGraphicsScene):
                 rect = rect.united(ri.visual_rect())
         return rect
 
+    def grow_bounds(self, rect: QRectF) -> None:
+        """Aumenta a área navegável (usado ao arrastar o quadro até a borda)."""
+        self._bounds = self._bounds.united(rect)
+        self.setSceneRect(self._bounds)
+
     def _update_scene_rect(self) -> None:
         content = self.content_rect()
         if content.isNull():
@@ -259,10 +292,11 @@ class MindScene(QGraphicsScene):
         self.selectionChanged.emit()
 
     def topic_at(self, pos: QPointF, exclude: set = frozenset()) -> Optional[TopicItem]:
-        for it in self.items(pos):
+        for it in self.items(pos):          # items() já testa o shape() de cada item
+            if isinstance(it, CollapseHandle):      # soltar/clicar no ⊖ = no tópico dono
+                it = it.topic
             if isinstance(it, TopicItem) and it.tid not in exclude and it.isVisible():
-                if it.shape().contains(it.mapFromScene(pos)):
-                    return it
+                return it
         return None
 
     # ================================================================ exportação
@@ -384,7 +418,11 @@ class MindScene(QGraphicsScene):
             self.sync()     # solto no vazio: volta ao lugar
 
     def mouseDoubleClickEvent(self, e: QGraphicsSceneMouseEvent) -> None:
-        hit = any(isinstance(i, (TopicItem, RelationItem)) for i in self.items(e.scenePos()))
+        hit = any(isinstance(i, (TopicItem, RelationItem, CollapseHandle)) for i in self.items(e.scenePos()))
+        recent = time.monotonic() - self.last_handle_click < QApplication.doubleClickInterval() / 1000.0
+        if not hit and recent:
+            e.accept()          # 2º clique de um duplo clique que começou no ⊖ (que mudou de lugar)
+            return
         if not hit and e.button() == Qt.MouseButton.LeftButton:
             self.background_double_clicked.emit(e.scenePos())
             e.accept()

@@ -74,6 +74,10 @@ if IS_MAC:
             "NSRequiresAquaSystemAppearance": False,
             "LSMinimumSystemVersion": "11.0",
             "NSHumanReadableCopyright": "C. Castro Media & Performance",
+            # Idiomas da interface (Ajustes → Idioma / Language); deixa os diálogos nativos no idioma certo
+            "CFBundleDevelopmentRegion": "pt_BR",
+            "CFBundleLocalizations": ["pt-BR", "en"],
+            "CFBundleAllowMixedLocalizations": True,
             # Associa arquivos .mfmap ao app (duplo clique no Finder abre no MindForge)
             "CFBundleDocumentTypes": [{
                 "CFBundleTypeName": "Mapa MindForge",

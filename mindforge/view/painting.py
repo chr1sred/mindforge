@@ -15,6 +15,7 @@ from PySide6.QtGui import (
     QBrush, QColor, QFont, QFontDatabase, QFontMetricsF, QPainter, QPainterPath, QPen, QPolygonF,
 )
 
+from mindforge.i18n import N_
 from mindforge.themes import UNDERLINE_SHAPES, TopicStyle, underline_width
 
 # ------------------------------------------------------------------- fontes
@@ -146,6 +147,7 @@ class TopicVisual:
     side: str = "right"
     collapsed_count: int = 0
     branch: str = "#8A8F98"          # cor do ramo a que o tópico pertence
+    has_children: bool = False       # mostra o botão de recolher (⊖) ao passar o mouse
     level: str = "sub"
     inner_x: float = 10.0            # recuo horizontal real (padding + extras da forma)
 
@@ -345,41 +347,92 @@ def text_rect(vis: TopicVisual) -> QRectF:
     return QRectF(cx + mk_w, cy + (vis.content_h - vis.text_h) / 2, vis.text_w, vis.text_h)
 
 
-def badge_center(vis: TopicVisual) -> QPointF:
+BADGE_R = 9.0          # círculo com o número (ramo recolhido)
+TOGGLE_R = 7.0         # botão ⊖ (ramo aberto)
+COUNT_OFFSET = 15.0    # distância do centro do número até a borda do tópico
+TOGGLE_OFFSET = 11.0   # distância do centro do ⊖ até a borda (fica sobre a linha do ramo)
+
+
+def _side_point(vis: TopicVisual, offset: float) -> tuple[QPointF, QPointF]:
+    """(ponto na borda do tópico, centro do controle) para o lado em que os filhos crescem."""
     side = vis.side
     if side == "left":
-        return QPointF(-11, vis.ay)
+        return QPointF(0, vis.ay), QPointF(-offset, vis.ay)
     if side == "down":
-        return QPointF(vis.w / 2, vis.h + 11)
+        return QPointF(vis.w / 2, vis.h), QPointF(vis.w / 2, vis.h + offset)
     if side == "up":
-        return QPointF(vis.w / 2, -11)
-    return QPointF(vis.w + 11, vis.ay)
+        return QPointF(vis.w / 2, 0), QPointF(vis.w / 2, -offset)
+    return QPointF(vis.w, vis.ay), QPointF(vis.w + offset, vis.ay)
 
 
-BADGE_R = 9.0
+def badge_center(vis: TopicVisual) -> QPointF:
+    """Centro do controle de recolher/expandir (número ou ⊖)."""
+    return _side_point(vis, COUNT_OFFSET if vis.collapsed_count else TOGGLE_OFFSET)[1]
+
+
+def badge_radius(vis: TopicVisual) -> float:
+    return BADGE_R if vis.collapsed_count else TOGGLE_R
+
+
+def _on_color(fill: QColor) -> QColor:
+    """Branco sobre cores escuras; quase preto sobre cores claras (ramos em tema pastel)."""
+    lum = 0.2126 * fill.redF() + 0.7152 * fill.greenF() + 0.0722 * fill.blueF()
+    return QColor("#1F2328") if lum > 0.62 else QColor("#FFFFFF")
+
+
+def paint_control(p: QPainter, vis: TopicVisual, background: str, state: str = "normal") -> None:
+    """Círculo do controle de recolher/expandir: ⊖ (ramo aberto) ou número (ramo recolhido).
+
+    state: "normal" (contorno), "hover" (preenchido e 10% maior) ou "pressed" (preenchido mais escuro).
+    """
+    collapsed = bool(vis.collapsed_count)
+    c = badge_center(vis)
+    r = badge_radius(vis)
+    color = QColor(vis.style.line_color)
+    filled = state in ("hover", "pressed")
+    if filled:
+        r *= 1.1
+        fill = color.darker(118) if state == "pressed" else color
+        ink = _on_color(fill)
+        p.setPen(QPen(fill, 1.3))
+        p.setBrush(fill)
+    else:
+        ink = color
+        p.setPen(QPen(color, 1.3))
+        p.setBrush(QColor(background))
+    p.drawEllipse(c, r, r)
+    if collapsed:
+        n = vis.collapsed_count
+        label = "99+" if n > 99 else str(n)
+        f = QFont(default_family())
+        f.setPixelSize(10 if len(label) < 3 else 8)
+        if filled:
+            f.setBold(True)
+        p.setFont(f)
+        p.setPen(ink)
+        p.drawText(QRectF(c.x() - r, c.y() - r, 2 * r, 2 * r), int(Qt.AlignmentFlag.AlignCenter), label)
+    else:
+        half = 3.5 * (1.1 if filled else 1.0)
+        p.setPen(QPen(ink, 1.5 if filled else 1.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        p.drawLine(QPointF(c.x() - half, c.y()), QPointF(c.x() + half, c.y()))
 
 
 def paint_badge(p: QPainter, vis: TopicVisual, background: str) -> None:
-    c = badge_center(vis)
-    p.setPen(QPen(QColor(vis.style.line_color), 1.4))
-    p.setBrush(QColor(background))
-    p.drawEllipse(c, BADGE_R, BADGE_R)
-    n = vis.collapsed_count
-    label = "99+" if n > 99 else str(n)
-    f = QFont(default_family())
-    f.setPixelSize(9 if len(label) < 3 else 7)
-    f.setBold(True)
-    p.setFont(f)
-    p.setPen(QColor(vis.style.line_color))
-    p.drawText(QRectF(c.x() - BADGE_R, c.y() - BADGE_R, 2 * BADGE_R, 2 * BADGE_R),
-               int(Qt.AlignmentFlag.AlignCenter), label)
+    """Ramo recolhido: traço curto + círculo com a quantidade de tópicos escondidos (sai na exportação)."""
+    edge, c = _side_point(vis, COUNT_OFFSET)
+    color = QColor(vis.style.line_color)
+    d = c - edge
+    L = math.hypot(d.x(), d.y()) or 1.0
+    p.setPen(QPen(color, max(1.2, vis.style.line_width), Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap))
+    p.drawLine(edge, c - d * (BADGE_R / L))
+    paint_control(p, vis, background, "normal")
 
 
 # --------------------------------------------------------------- marcadores
 MARKER_LABELS = {
-    "prio1": "Prioridade 1", "prio2": "Prioridade 2", "prio3": "Prioridade 3",
-    "feito": "Concluído", "estrela": "Estrela", "bandeira": "Bandeira",
-    "pergunta": "Dúvida", "alerta": "Atenção",
+    "prio1": N_("Prioridade 1"), "prio2": N_("Prioridade 2"), "prio3": N_("Prioridade 3"),
+    "feito": N_("Concluído"), "estrela": N_("Estrela"), "bandeira": N_("Bandeira"),
+    "pergunta": N_("Dúvida"), "alerta": N_("Atenção"),
 }
 
 

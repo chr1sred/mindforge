@@ -1,4 +1,4 @@
-"""Painel lateral no estilo do XMind: abas "Estilo" (tópico) e "Mapa".
+"""Painel lateral no estilo do XMind: abas tr("Estilo") (tópico) e tr("Mapa").
 
 A aba Estilo é dividida em seções recolhíveis (Forma, Limite, Texto, Ramo,
 Marcadores, Nota). Com vários tópicos selecionados, valores diferentes
@@ -12,18 +12,24 @@ from typing import Callable, Optional
 from PySide6.QtCore import QPoint, QSize, Qt, QTimer
 from PySide6.QtGui import QFontDatabase, QIcon
 from PySide6.QtWidgets import (
-    QButtonGroup, QCheckBox, QComboBox, QCompleter, QGridLayout, QHBoxLayout, QLabel, QMenu,
-    QPlainTextEdit, QPushButton, QScrollArea, QSpinBox, QStackedWidget, QToolButton, QVBoxLayout,
+    QButtonGroup, QCheckBox, QComboBox, QCompleter, QGridLayout, QHBoxLayout, QLabel, QMenu, QMessageBox,
+    QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QStackedWidget, QToolButton, QVBoxLayout,
     QWidget,
 )
 
+from mindforge import colorthemes as ct
+from mindforge.i18n import N_, ntr, tr
 from mindforge.layouts import LAYOUTS
 from mindforge.model import ops
 from mindforge.themes import (
-    BORDER_STYLES, BRANCH_STYLES, LEVELS, LINE_ENDS, LINE_PATTERNS, SHAPES, TEXT_CASES, visible_themes,
+    BORDER_STYLES, BRANCH_STYLES, LEVELS, LINE_ENDS, LINE_PATTERNS, SHAPES, TEXT_CASES,
 )
 from mindforge.view import style
 from mindforge.view.icons import branch_style_icon, icon, line_end_icon, pattern_icon, shape_icon
+from mindforge.view.colorpanel import (
+    PaletteButton, PaletteDialog, PalettePopup, WheelButton, palette_name, palette_store,
+    variant_thumbnail,
+)
 from mindforge.view.painting import MARKER_LABELS, default_family, ensure_fonts, font_available
 from mindforge.view.resources import marker_icon
 from mindforge.view.widgets import (
@@ -35,10 +41,10 @@ FONT_SIZES = [10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24, 28, 32, 40, 48, 64]
 GLOBAL_FONTS = ["Inter", "Helvetica Neue", "Avenir Next", "Roboto", "Open Sans", "Lato", "Montserrat",
                 "Poppins", "Segoe UI", "Arial", "Verdana", "Georgia", "Times New Roman", "Menlo",
                 "DejaVu Sans", "Noto Sans"]
-MAP_LINE_WIDTHS = [("padrao", "Predefinição"), ("fina", "Fina"), ("grossa", "Grossa")]
-LEVEL_NAMES = {"root": "Tema central", "main": "Tópico principal", "sub": "Subtópico",
-               "floating": "Tópico flutuante"}
-THEME_THUMB = QSize(74, 48)
+MAP_LINE_WIDTHS = [("padrao", N_("Predefinição")), ("fina", N_("Fina")), ("grossa", N_("Grossa"))]
+LEVEL_NAMES = {"root": N_("Tema central"), "main": N_("Tópico principal"), "sub": N_("Subtópico"),
+               "floating": N_("Tópico flutuante")}
+THEME_THUMB = QSize(82, 54)
 WEIGHT_NAMES = {100: "Thin", 200: "ExtraLight", 300: "Light", 400: "Regular", 500: "Medium",
                 600: "SemiBold", 700: "Bold", 800: "ExtraBold", 900: "Black"}
 
@@ -74,15 +80,15 @@ def _scroll(inner: QWidget) -> QScrollArea:
     return sa
 
 
-def _combo(items: list[tuple], default: Optional[str] = "Padrão") -> QComboBox:
+def _combo(items: list[tuple], default: Optional[str] = N_("Padrão")) -> QComboBox:
     c = QComboBox()
     if default:
-        c.addItem(default, None)
+        c.addItem(tr(default), None)
     for item in items:
         if len(item) == 3:
-            c.addItem(item[2], item[1], item[0])
+            c.addItem(item[2], tr(item[1]), item[0])
         else:
-            c.addItem(item[1], item[0])
+            c.addItem(tr(item[1]), item[0])
     return c
 
 
@@ -103,7 +109,7 @@ class FormatPanel(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(14, 12, 14, 8)
         outer.setSpacing(12)
-        self.tabs = Segmented(["Estilo", "Mapa"])
+        self.tabs = Segmented([tr("Estilo"), tr("Mapa")])
         outer.addWidget(self.tabs)
         self.pages = QStackedWidget()
         outer.addWidget(self.pages, 1)
@@ -123,12 +129,12 @@ class FormatPanel(QWidget):
         self._empty_icon = QLabel()
         self._empty_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         el.addWidget(self._empty_icon)
-        t = QLabel("Nenhum tópico selecionado")
+        t = QLabel(tr("Nenhum tópico selecionado"))
         t.setObjectName("Heading")
         t.setAlignment(Qt.AlignmentFlag.AlignCenter)
         el.addWidget(t)
-        hint = QLabel("Clique em um tópico para editar o estilo.\n\n"
-                      "Tab  cria subtópico\nEnter  cria tópico irmão\nF2 ou Espaço  edita o texto")
+        hint = QLabel(tr("Clique em um tópico para editar o estilo.\n\n"
+                         "Tab  cria subtópico\nEnter  cria tópico irmão\nF2 ou Espaço  edita o texto"))
         hint.setObjectName("Muted")
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         el.addWidget(hint)
@@ -149,11 +155,11 @@ class FormatPanel(QWidget):
         lay.addWidget(self.heading)
         lay.addWidget(self.sub_heading)
         hb = QHBoxLayout()
-        self.level_btn = QPushButton("Aplicar ao nível")
-        self.level_btn.setToolTip("Copia este estilo para todos os tópicos do mesmo nível")
+        self.level_btn = QPushButton(tr("Aplicar ao nível"))
+        self.level_btn.setToolTip(tr("Copia este estilo para todos os tópicos do mesmo nível"))
         self.level_btn.clicked.connect(self._apply_to_level)
-        self.reset_btn = QPushButton("Repor estilo")
-        self.reset_btn.setToolTip("Volta ao estilo padrão do tema")
+        self.reset_btn = QPushButton(tr("Repor estilo"))
+        self.reset_btn.setToolTip(tr("Volta ao estilo padrão do tema"))
         self.reset_btn.clicked.connect(self._reset_style)
         hb.addWidget(self.level_btn)
         hb.addWidget(self.reset_btn)
@@ -161,16 +167,16 @@ class FormatPanel(QWidget):
         lay.addWidget(separator())
 
         # -------------------------------------------------- Forma
-        sec = CollapsibleSection("Forma", "forma")
+        sec = CollapsibleSection(tr("Forma"), "forma")
         grid = QGridLayout()
         grid.setSpacing(6)
         self.shape_btns: dict[str, QToolButton] = {}
-        shapes = [("padrao", "Automática (do tema)")] + list(SHAPES.items())
+        shapes = [("padrao", N_("Automática (do tema)"))] + list(SHAPES.items())
         for i, (key, label) in enumerate(shapes):
             b = QToolButton()
             b.setObjectName("ShapeButton")
             b.setCheckable(True)
-            b.setToolTip(label)
+            b.setToolTip(tr(label))
             b.setIconSize(QSize(34, 22))
             b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.clicked.connect(lambda _c=False, k=key: self.set_style("shape", None if k == "padrao" else k))
@@ -179,37 +185,37 @@ class FormatPanel(QWidget):
         sec.add(grid)
         self.fill_btn = SwatchButton(True)
         self.fill_btn.picked.connect(lambda v: self.set_style("fill", v))
-        sec.add(row("Preenchimento", self.fill_btn))
+        sec.add(row(tr("Preenchimento"), self.fill_btn))
         self.width_spin = QSpinBox()
         self.width_spin.setRange(0, 2000)
-        self.width_spin.setSpecialValueText("Auto")
+        self.width_spin.setSpecialValueText(tr("Auto"))
         self.width_spin.setSuffix(" px")
         self.width_spin.setSingleStep(10)
-        self.width_spin.setToolTip("Largura fixa do tópico (o texto quebra para caber). 0 = automática")
+        self.width_spin.setToolTip(tr("Largura fixa do tópico (o texto quebra para caber). 0 = automática"))
         self.width_spin.editingFinished.connect(self._on_width)
-        self.width_fit = QPushButton("Ajustar")
-        self.width_fit.setToolTip("Volta à largura automática")
+        self.width_fit = QPushButton(tr("Ajustar"))
+        self.width_fit.setToolTip(tr("Volta à largura automática"))
         self.width_fit.clicked.connect(lambda: self.set_style("width", None))
-        sec.add(row("Largura", self.width_spin, self.width_fit))
+        sec.add(row(tr("Largura"), self.width_spin, self.width_fit))
         lay.addWidget(sec)
         self._sections = [sec]
 
         # -------------------------------------------------- Limite
-        sec = CollapsibleSection("Limite", "limite")
+        sec = CollapsibleSection(tr("Limite"), "limite")
         self.border_style = _combo([(k, v) for k, v in BORDER_STYLES.items()])
         self.border_style.activated.connect(lambda _i: self.set_style("border_style", self.border_style.currentData()))
         self.border_level = _combo(list(LEVELS.items()))
         self.border_level.activated.connect(lambda _i: self.set_style("border_level", self.border_level.currentData()))
         self.border_btn = SwatchButton(True)
         self.border_btn.picked.connect(lambda v: self.set_style("border", v))
-        sec.add(row("Estilo", self.border_style))
-        sec.add(row("Espessura", self.border_level))
-        sec.add(row("Cor", self.border_btn))
+        sec.add(row(tr("Estilo"), self.border_style))
+        sec.add(row(tr("Espessura"), self.border_level))
+        sec.add(row(tr("Cor"), self.border_btn))
         lay.addWidget(sec)
         self._sections.append(sec)
 
         # -------------------------------------------------- Texto
-        sec = CollapsibleSection("Texto", "texto")
+        sec = CollapsibleSection(tr("Texto"), "texto")
         self.font_combo = QComboBox()
         self.font_combo.setEditable(True)
         self.font_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
@@ -218,7 +224,7 @@ class FormatPanel(QWidget):
         self.font_combo.activated.connect(self._on_font_activated)
         self.font_combo.lineEdit().editingFinished.connect(self._on_font_typed)
         sec.add(self.font_combo)
-        self.font_warning = QLabel("Fonte não instalada neste computador — usando substituta.")
+        self.font_warning = QLabel(tr("Fonte não instalada neste computador — usando substituta."))
         self.font_warning.setObjectName("Muted")
         self.font_warning.setWordWrap(True)
         self.font_warning.hide()
@@ -231,7 +237,7 @@ class FormatPanel(QWidget):
         self.size_combo = QComboBox()
         self.size_combo.setEditable(True)
         self.size_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-        self.size_combo.addItem("Auto", None)
+        self.size_combo.addItem(tr("Auto"), None)
         for s in FONT_SIZES:
             self.size_combo.addItem(str(s), s)
         self.size_combo.activated.connect(lambda _i: self.set_style("font_size", self.size_combo.currentData()))
@@ -242,22 +248,22 @@ class FormatPanel(QWidget):
         sec.add(h)
         h = QHBoxLayout()
         h.setSpacing(6)
-        self.bold = self._toggle("N", "Negrito", bold=True)
+        self.bold = self._toggle(tr("N"), tr("Negrito"), bold=True)      # "N" de Negrito; "B" em inglês
         self.bold.clicked.connect(lambda on: self.set_styles({"font_weight": 700 if on else 400, "bold": None}))
-        self.italic = self._toggle("I", "Itálico", italic=True)
+        self.italic = self._toggle("I", tr("Itálico"), italic=True)
         self.italic.clicked.connect(lambda on: self.set_style("italic", bool(on)))
-        self.strike = self._toggle("S", "Riscado", strike=True)
+        self.strike = self._toggle("S", tr("Riscado"), strike=True)
         self.strike.clicked.connect(lambda on: self.set_style("strike", bool(on)))
         self.case_btn = QToolButton()
         self.case_btn.setObjectName("StyleToggle")
         self.case_btn.setText("Tt")
-        self.case_btn.setToolTip("Maiúsculas e minúsculas")
+        self.case_btn.setToolTip(tr("Maiúsculas e minúsculas"))
         self.case_btn.setFixedSize(38, 28)
         self.case_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         cm = QMenu(self.case_btn)
         self.case_actions = {}
         for key, label in TEXT_CASES.items():
-            a = cm.addAction(label, lambda k=key: self.set_style("text_case", None if k == "normal" else k))
+            a = cm.addAction(tr(label), lambda k=key: self.set_style("text_case", None if k == "normal" else k))
             a.setCheckable(True)
             self.case_actions[key] = a
         self.case_btn.setMenu(cm)
@@ -273,7 +279,7 @@ class FormatPanel(QWidget):
         self.align_group = QButtonGroup(self)
         self.align_group.setExclusive(True)
         self.align_btns: dict[str, QToolButton] = {}
-        for key, tip in (("left", "Alinhar à esquerda"), ("center", "Centralizar"), ("right", "Alinhar à direita")):
+        for key, tip in (("left", tr("Alinhar à esquerda")), ("center", tr("Centralizar")), ("right", tr("Alinhar à direita"))):
             b = QToolButton()
             b.setObjectName("StyleToggle")
             b.setCheckable(True)
@@ -289,36 +295,36 @@ class FormatPanel(QWidget):
         self._sections.append(sec)
 
         # -------------------------------------------------- Ramo
-        sec = CollapsibleSection("Ramo", "ramo")
-        self.branch_btn = IconPickerButton(self._branch_items, 2, QSize(44, 28), "Padrão do esqueleto")
+        sec = CollapsibleSection(tr("Ramo"), "ramo")
+        self.branch_btn = IconPickerButton(self._branch_items, 2, QSize(44, 28), tr("Padrão do esqueleto"))
         self.branch_btn.picked.connect(lambda k: self.set_style("branch_style", k, branch=True))
         self.pattern_combo = QComboBox()
         self.pattern_combo.setIconSize(QSize(56, 14))
         self.pattern_combo.activated.connect(lambda _i: self.set_style(
             "line_pattern", self.pattern_combo.currentData(), branch=True))
-        self.end_btn = IconPickerButton(self._end_items, 2, QSize(44, 20), "Padrão")
+        self.end_btn = IconPickerButton(self._end_items, 2, QSize(44, 20), tr("Padrão"))
         self.end_btn.picked.connect(lambda k: self.set_style("line_end", k, branch=True))
         self.line_level = _combo(list(LEVELS.items()))
         self.line_level.activated.connect(lambda _i: self.set_style(
             "line_level", self.line_level.currentData(), branch=True))
         self.line_btn = SwatchButton(False)
         self.line_btn.picked.connect(lambda v: self.set_style("line_color", v, branch=True))
-        self.branch_desc = QCheckBox("Aplicar também aos descendentes")
+        self.branch_desc = QCheckBox(tr("Aplicar também aos descendentes"))
         self.branch_hint = QLabel()
         self.branch_hint.setObjectName("Muted")
         self.branch_hint.setWordWrap(True)
-        sec.add(row("Estilo", self.branch_btn))
-        sec.add(row("Linha", self.pattern_combo))
-        sec.add(row("Fim", self.end_btn))
-        sec.add(row("Espessura", self.line_level))
-        sec.add(row("Cor", self.line_btn))
+        sec.add(row(tr("Estilo"), self.branch_btn))
+        sec.add(row(tr("Linha"), self.pattern_combo))
+        sec.add(row(tr("Fim"), self.end_btn))
+        sec.add(row(tr("Espessura"), self.line_level))
+        sec.add(row(tr("Cor"), self.line_btn))
         sec.add(self.branch_desc)
         sec.add(self.branch_hint)
         lay.addWidget(sec)
         self._sections.append(sec)
 
         # -------------------------------------------------- Marcadores
-        sec = CollapsibleSection("Marcadores", "marcadores")
+        sec = CollapsibleSection(tr("Marcadores"), "marcadores")
         mg = QGridLayout()
         mg.setSpacing(6)
         self.marker_btns: dict[str, QToolButton] = {}
@@ -328,7 +334,7 @@ class FormatPanel(QWidget):
             b.setIcon(marker_icon(key))
             b.setIconSize(QSize(20, 20))
             b.setCheckable(True)
-            b.setToolTip(MARKER_LABELS.get(key, key))
+            b.setToolTip(tr(MARKER_LABELS.get(key, key)))
             b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.clicked.connect(lambda _on, k=key: self._toggle_marker(k))
             mg.addWidget(b, i // 4, i % 4)
@@ -338,9 +344,9 @@ class FormatPanel(QWidget):
         self._sections.append(sec)
 
         # -------------------------------------------------- Nota
-        sec = CollapsibleSection("Nota", "nota")
+        sec = CollapsibleSection(tr("Nota"), "nota")
         self.note = QPlainTextEdit()
-        self.note.setPlaceholderText("Escreva uma nota para este tópico…")
+        self.note.setPlaceholderText(tr("Escreva uma nota para este tópico…"))
         self.note.setMinimumHeight(110)
         self.note.textChanged.connect(lambda: self._note_timer.start())
         self.note.installEventFilter(self)
@@ -368,11 +374,11 @@ class FormatPanel(QWidget):
 
     def _branch_items(self) -> list:
         col = style.chrome().text
-        return [(k, branch_style_icon(k, col), v) for k, v in BRANCH_STYLES.items()]
+        return [(k, branch_style_icon(k, col), tr(v)) for k, v in BRANCH_STYLES.items()]
 
     def _end_items(self) -> list:
         col = style.chrome().text
-        return [(k, line_end_icon(k, col), v) for k, v in LINE_ENDS.items()]
+        return [(k, line_end_icon(k, col), tr(v)) for k, v in LINE_ENDS.items()]
 
     # ================================================================== Mapa
     def _build_map_page(self) -> None:
@@ -381,26 +387,42 @@ class FormatPanel(QWidget):
         lay.setContentsMargins(0, 0, 6, 0)
         lay.setSpacing(10)
 
-        lay.addWidget(section_title("Esqueleto"))
+        lay.addWidget(section_title(tr("Esqueleto")))
         self.skeleton_btn = CardButton()
         self.skeleton_btn.clicked.connect(self._open_skeletons)
         lay.addWidget(self.skeleton_btn)
 
         lay.addWidget(separator())
-        lay.addWidget(section_title("Tema de cores"))
+        lay.addWidget(section_title(tr("Tema de cores")))
+        th_row = QHBoxLayout()
+        th_row.setSpacing(6)
+        self.palette_btn = PaletteButton()
+        self.palette_btn.clicked.connect(self._open_palettes)
+        th_row.addWidget(self.palette_btn, 1)
+        self.palette_add = QToolButton()
+        self.palette_add.setObjectName("Card")
+        self.palette_add.setText("+")
+        self.palette_add.setToolTip(tr("Criar novo tema de cores"))
+        self.palette_add.setFixedWidth(40)
+        self.palette_add.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        self.palette_add.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.palette_add.clicked.connect(lambda: self._edit_palette(None))
+        th_row.addWidget(self.palette_add)
+        lay.addLayout(th_row)
+        # as 6 variações do tema (miniaturas), como no XMind
         self.theme_grid = QGridLayout()
         self.theme_grid.setSpacing(6)
-        self.theme_btns: dict[str, QToolButton] = {}
-        for i, th in enumerate(visible_themes()):
+        self.variant_btns: list[QToolButton] = []
+        for i, label in enumerate(ct.VARIANTS):
             b = QToolButton()
             b.setObjectName("ThemeCard")
             b.setCheckable(True)
-            b.setToolTip(th.label)
+            b.setToolTip(tr(label))
             b.setIconSize(THEME_THUMB)
             b.setCursor(Qt.CursorShape.PointingHandCursor)
-            b.clicked.connect(lambda _c=False, k=th.key: self._set_theme(k))
+            b.clicked.connect(lambda _c=False, k=i: self._set_variant(k))
             self.theme_grid.addWidget(b, i // 3, i % 3)
-            self.theme_btns[th.key] = b
+            self.variant_btns.append(b)
         lay.addLayout(self.theme_grid)
         self.theme_name = QLabel()
         self.theme_name.setObjectName("Muted")
@@ -409,38 +431,48 @@ class FormatPanel(QWidget):
         lay.addWidget(separator())
         self.bg_btn = SwatchButton(False)
         self.bg_btn.picked.connect(lambda v: self._set_setting("background", v))
-        lay.addLayout(row("Cor de fundo", self.bg_btn))
+        lay.addLayout(row(tr("Cor de fundo"), self.bg_btn))
 
         lay.addWidget(separator())
-        lay.addWidget(section_title("Tipo de letra global"))
+        lay.addWidget(section_title(tr("Tipo de letra global")))
         self.map_font = QComboBox()
-        self.map_font.addItem("Predefinição (Inter)", None)
+        self.map_font.addItem(tr("Predefinição (Inter)"), None)
         for fam in GLOBAL_FONTS[1:]:
             if font_available(fam):
                 self.map_font.addItem(fam, fam)
         self.map_font.activated.connect(lambda _i: self._set_setting("font", self.map_font.currentData()))
         lay.addWidget(self.map_font)
 
-        lay.addWidget(section_title("Ramos"))
-        self.map_branch = IconPickerButton(self._branch_items, 2, QSize(44, 28), "Padrão do esqueleto")
+        lay.addWidget(section_title(tr("Ramos")))
+        self.map_branch = IconPickerButton(self._branch_items, 2, QSize(44, 28), tr("Padrão do esqueleto"))
         self.map_branch.picked.connect(lambda k: self._set_setting("branch_style", k))
-        lay.addLayout(row("Estilo de ramo padrão", self.map_branch))
+        lay.addLayout(row(tr("Estilo de ramo padrão"), self.map_branch))
         self.map_line = QComboBox()
         for key, label in MAP_LINE_WIDTHS:
-            self.map_line.addItem(label, key)
+            self.map_line.addItem(tr(label), key)
         self.map_line.activated.connect(lambda _i: self._set_setting("line_width", self.map_line.currentData()))
-        lay.addLayout(row("Largura da linha", self.map_line))
-        self.rainbow = QCheckBox("Ramo colorido")
+        lay.addLayout(row(tr("Largura da linha"), self.map_line))
+        self.rainbow = QCheckBox(tr("Ramo colorido"))
         self.rainbow.clicked.connect(lambda on: self._set_setting("rainbow", bool(on)))
-        lay.addWidget(self.rainbow)
+        self.wheel_btn = WheelButton()
+        self.wheel_btn.picked.connect(lambda k: self._set_setting("branch_palette", k))
+        self.static_btn = SwatchButton(False)
+        self.static_btn.setToolTip(tr("Cor única dos ramos"))
+        self.static_btn.picked.connect(lambda v: self._set_setting("static_color", v))
+        rb_row = QHBoxLayout()
+        rb_row.addWidget(self.rainbow)
+        rb_row.addStretch(1)
+        rb_row.addWidget(self.wheel_btn)
+        rb_row.addWidget(self.static_btn)
+        lay.addLayout(rb_row)
 
         lay.addWidget(separator())
-        lay.addWidget(section_title("Estilo do mapa"))
-        self.compact = QCheckBox("Compactar mapa")
+        lay.addWidget(section_title(tr("Estilo do mapa")))
+        self.compact = QCheckBox(tr("Compactar mapa"))
         self.compact.clicked.connect(lambda on: self._set_setting("compact", bool(on)))
         lay.addWidget(self.compact)
-        self.fish_align = QCheckBox("Alinhar tópicos principais (espinha de peixe)")
-        self.fish_align.setToolTip("Todas as espinhas com o mesmo comprimento, em fileiras retas")
+        self.fish_align = QCheckBox(tr("Alinhar tópicos principais (espinha de peixe)"))
+        self.fish_align.setToolTip(tr("Todas as espinhas com o mesmo comprimento, em fileiras retas"))
         self.fish_align.clicked.connect(lambda on: self._set_setting("fishbone_align", bool(on)))
         lay.addWidget(self.fish_align)
         lay.addStretch(1)
@@ -462,9 +494,9 @@ class FormatPanel(QWidget):
         for key, b in self.align_btns.items():
             b.setIcon(icon(f"align_{key}", c.text, 18))
         self.pattern_combo.clear()
-        self.pattern_combo.addItem("Padrão", None)
+        self.pattern_combo.addItem(tr("Padrão"), None)
         for key, label in LINE_PATTERNS.items():
-            self.pattern_combo.addItem(pattern_icon(key, c.text), "" if key != "nenhum" else label, key)
+            self.pattern_combo.addItem(pattern_icon(key, c.text), "" if key != "nenhum" else tr(label), key)
         for sec in self._sections:
             sec._apply()
         self.refresh()
@@ -482,7 +514,7 @@ class FormatPanel(QWidget):
             return
         self._fonts_filled = True
         self.font_combo.blockSignals(True)
-        self.font_combo.addItem(f"Padrão ({default_family()})", None)
+        self.font_combo.addItem(tr("Padrão ({fonte})", fonte=default_family()), None)
         for fam in font_families():
             self.font_combo.addItem(fam, fam)
         comp = QCompleter([self.font_combo.itemText(i) for i in range(self.font_combo.count())], self.font_combo)
@@ -530,9 +562,9 @@ class FormatPanel(QWidget):
         self.heading.setText(name if len(name) <= 48 else name[:47] + "…")
         level = self.canvas.mscene.visuals[cur].level
         if len(ids) > 1:
-            self.sub_heading.setText(f"{len(ids)} tópicos selecionados")
+            self.sub_heading.setText(ntr("{n} tópico selecionado", "{n} tópicos selecionados", len(ids)))
         else:
-            self.sub_heading.setText(LEVEL_NAMES.get(level, ""))
+            self.sub_heading.setText(tr(LEVEL_NAMES.get(level, "")))
         self.level_btn.setEnabled(len(ids) == 1)
 
         # Forma
@@ -603,11 +635,11 @@ class FormatPanel(QWidget):
         any_group = any(tid in groups for tid in ids)
         self.branch_btn.setEnabled(bool(styled))
         if not any_group:
-            self.branch_hint.setText("As opções valem para as linhas que saem deste tópico "
-                                     "para os subtópicos dele.")
+            self.branch_hint.setText(tr("As opções valem para as linhas que saem deste tópico "
+                                        "para os subtópicos dele."))
         elif not styled:
-            self.branch_hint.setText("Neste esqueleto o formato das linhas destes subtópicos é fixo; "
-                                     "linha, fim, espessura e cor continuam valendo.")
+            self.branch_hint.setText(tr("Neste esqueleto o formato das linhas destes subtópicos é fixo; "
+                                        "linha, fim, espessura e cor continuam valendo."))
         else:
             self.branch_hint.setText("")
         self.branch_hint.setVisible(bool(self.branch_hint.text()))
@@ -637,25 +669,39 @@ class FormatPanel(QWidget):
     def _refresh_map(self) -> None:
         m = self.canvas.doc.map
         lay = LAYOUTS.get(m.layout)
-        self.skeleton_btn.setText(f"  {lay.label if lay else m.layout}   ⌄")
+        self.skeleton_btn.setText(f"  {tr(lay.label) if lay else m.layout}   ⌄")
         self.skeleton_btn.setIcon(QIcon(thumbnail(m.layout, "_esqueleto", QSize(96, 56))))
-        key = (m.layout, tuple(sorted((k, str(v)) for k, v in m.settings.items() if k != "background")))
+        pal = ct.current_palette(m)
+        legacy = pal is None
+        shown = pal or ct.legacy_palette(m.theme)
+        self.palette_btn.show_palette(shown.colors, palette_name(shown) if not legacy else tr(shown.name))
+        variant = int(m.setting("color_variant") or 0)
+        key = (m.layout, shown.colors, tuple(sorted((k, str(v)) for k, v in m.settings.items()
+                                                    if k in ("rainbow", "line_width", "branch_style",
+                                                             "branch_palette", "static_color"))))
         if key != self._theme_thumbs_key:
             self._theme_thumbs_key = key
-            settings = {k: v for k, v in m.settings.items() if k in ("rainbow", "line_width", "branch_style")}
-            for tkey, b in self.theme_btns.items():
-                b.setIcon(QIcon(thumbnail(m.layout, tkey, THEME_THUMB, settings)))
-        for tkey, b in self.theme_btns.items():
-            b.setChecked(tkey == m.theme)
-        th = next((t for t in visible_themes() if t.key == m.theme), None)
-        self.theme_name.setText(th.label if th else "")
+            settings = {k: v for k, v in m.settings.items()
+                        if k in ("rainbow", "line_width", "branch_style", "branch_palette", "static_color")}
+            for i, b in enumerate(self.variant_btns):
+                b.setIcon(QIcon(variant_thumbnail(shown.colors, i, m.layout, settings, THEME_THUMB)))
+        for i, b in enumerate(self.variant_btns):
+            b.setChecked(not legacy and i == variant)
+        self.theme_name.setText(tr("{tema} · {variacao}", tema=palette_name(shown), variacao=tr(ct.VARIANTS[variant]))
+                                if not legacy else tr("Tema anterior: escolha uma variação para atualizar"))
         self.bg_btn.show_color(self.canvas.mscene.background_color)
         set_combo(self.map_font, m.setting("font"))
         set_combo(self.map_line, m.setting("line_width"))
         col = style.chrome().text
         mb = m.setting("branch_style")
         self.map_branch.show_value(mb, branch_style_icon(mb or (lay.default_branch if lay else "colchete_curvo"), col))
-        self.rainbow.setChecked(bool(m.setting("rainbow")))
+        rainbow = bool(m.setting("rainbow"))
+        self.rainbow.setChecked(rainbow)
+        theme = ct.effective_theme(m)
+        self.wheel_btn.setVisible(rainbow)
+        self.wheel_btn.show_value(m.setting("branch_palette"), theme.palette)
+        self.static_btn.setVisible(not rainbow)
+        self.static_btn.show_color(m.setting("static_color") or theme.mono)
         self.compact.setChecked(bool(m.setting("compact")))
         self.fish_align.setChecked(bool(m.setting("fishbone_align")))
         self.fish_align.setVisible(m.layout == "espinha_peixe")
@@ -680,7 +726,7 @@ class FormatPanel(QWidget):
         sel = list(ids)
         if branch and self.branch_desc.isChecked():
             ids = ops.with_descendants(self.canvas.doc.map, ids)
-        self.canvas.doc.apply("Formatar tópico", lambda m: ops.set_styles(m, ids, values), select=sel)
+        self.canvas.doc.apply(N_("Formatar tópico"), lambda m: ops.set_styles(m, ids, values), select=sel)
 
     def _on_width(self) -> None:
         v = self.width_spin.value()
@@ -717,18 +763,18 @@ class FormatPanel(QWidget):
     def _reset_style(self) -> None:
         ids = self._ids()
         if ids:
-            self.canvas.doc.apply("Repor estilo", lambda m: ops.clear_style(m, ids), select=ids)
+            self.canvas.doc.apply(N_("Repor estilo"), lambda m: ops.clear_style(m, ids), select=ids)
 
     def _apply_to_level(self) -> None:
         cur = self.canvas.current() if self.canvas else None
         if cur:
-            self.canvas.doc.apply("Aplicar estilo ao nível", lambda m: ops.apply_style_to_level(m, cur),
+            self.canvas.doc.apply(N_("Aplicar estilo ao nível"), lambda m: ops.apply_style_to_level(m, cur),
                                   select=[cur])
 
     def _toggle_marker(self, key: str) -> None:
         ids = self._ids()
         if ids:
-            self.canvas.doc.apply("Marcador", lambda m: ops.toggle_marker(m, ids, key), select=ids)
+            self.canvas.doc.apply(N_("Marcador"), lambda m: ops.toggle_marker(m, ids, key), select=ids)
 
     def _commit_note(self) -> None:
         self._note_timer.stop()
@@ -738,7 +784,7 @@ class FormatPanel(QWidget):
         text = self.note.toPlainText()
         if self.canvas.doc.map.find(tid).note == text:
             return
-        self.canvas.doc.apply("Editar nota", lambda m: ops.set_note(m, tid, text),
+        self.canvas.doc.apply(N_("Editar nota"), lambda m: ops.set_note(m, tid, text),
                               merge_key=f"note:{tid}")
 
     def _open_skeletons(self) -> None:
@@ -751,16 +797,83 @@ class FormatPanel(QWidget):
 
     def _set_layout(self, key: str) -> None:
         self.canvas.commit_edit(refocus=False)
-        self.canvas.doc.apply("Mudar esqueleto", lambda m: ops.set_layout(m, key))
+        self.canvas.doc.apply(N_("Mudar esqueleto"), lambda m: ops.set_layout(m, key))
         QTimer.singleShot(0, self.canvas.zoom_fit)
 
+    # ------------------------------------------------------- temas de cores
+    def _apply_colors(self, palette_setting: Optional[dict], variant: Optional[int]) -> None:
+        def fn(m):
+            ops.set_color_theme(m, palette_setting, variant)
+            m.settings.pop("background", None)      # o fundo faz parte do tema (ex.: Noturno)
+        self.canvas.commit_edit()
+        self.canvas.doc.apply(N_("Mudar tema de cores"), fn)
+
+    def _open_palettes(self) -> None:
+        m = self.canvas.doc.map
+        pal = ct.current_palette(m)
+        dp, dv = ct.default_for_new_maps()
+        is_default = pal is not None and list(pal.colors) == dp["colors"] and \
+            int(m.setting("color_variant") or 0) == dv
+        pop = PalettePopup(self.window(), pal.id if pal else None, is_default)
+        pop.picked.connect(lambda p: self._apply_colors(p.as_setting(), None if ct.current_palette(
+            self.canvas.doc.map) else 0))
+        pop.create_requested.connect(lambda: self._edit_palette(None))
+        pop.edit_requested.connect(self._edit_palette)
+        pop.make_default_requested.connect(self._make_default)
+        pop.adjustSize()
+        g = self.palette_btn.mapToGlobal(QPoint(0, self.palette_btn.height() + 4))
+        pop.move(g.x() + self.palette_btn.width() - pop.width(), g.y())
+        pop.show()
+
+    def _edit_palette(self, pid: Optional[str]) -> None:
+        store = palette_store()
+        current = store.find(pid) if pid else None
+        if current is None and not store.can_add():
+            QMessageBox.information(self, tr("A Minha Cor"),
+                                    tr("Limite de {n} paletas atingido. Exclua alguma para criar outra.",
+                                       n=ct.MAX_CUSTOM))
+            return
+        dlg = PaletteDialog(self.window(), current)
+        if not dlg.exec():
+            return
+        name, colors = dlg.result_palette()
+        try:
+            p = store.update(current.id, name, colors) if current else store.add(name, colors)
+        except (ValueError, KeyError, OSError) as exc:
+            QMessageBox.warning(self, tr("A Minha Cor"), str(exc))
+            return
+        m = self.canvas.doc.map
+        cur = ct.current_palette(m)
+        # paleta nova: aplica no mapa; edição: atualiza o mapa se ele usa essa paleta
+        if current is None or (cur is not None and cur.id == p.id):
+            self._apply_colors(p.as_setting(), None if cur else 0)
+
+    def _make_default(self) -> None:
+        m = self.canvas.doc.map
+        pal = ct.current_palette(m)
+        if pal is None:
+            return
+        v = int(m.setting("color_variant") or 0)
+        try:
+            palette_store().set_default(pal.as_setting(), v)
+        except OSError as exc:
+            QMessageBox.warning(self, tr("A Minha Cor"), str(exc))
+            return
+        ct.set_default_for_new_maps(pal.as_setting(), v)
+        self.canvas.status_message.emit(tr("“{nome}” será o tema dos novos mapas.", nome=palette_name(pal)))
+
+    def _set_variant(self, i: int) -> None:
+        m = self.canvas.doc.map
+        pal = ct.current_palette(m) or ct.legacy_palette(m.theme)
+        self._apply_colors(pal.as_setting(), i)
+
     def _set_theme(self, key: str) -> None:
-        self.canvas.doc.apply("Mudar tema", lambda m: ops.set_theme(m, key))
+        self.canvas.doc.apply(N_("Mudar tema"), lambda m: ops.set_theme(m, key))
         self.refresh()
 
     def _set_setting(self, key: str, value) -> None:
         self.canvas.commit_edit(refocus=False)
-        self.canvas.doc.apply("Configurar mapa", lambda m: ops.set_map_setting(m, key, value))
+        self.canvas.doc.apply(N_("Configurar mapa"), lambda m: ops.set_map_setting(m, key, value))
         self.refresh()
 
     def focus_note(self) -> None:
