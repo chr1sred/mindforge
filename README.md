@@ -4,6 +4,8 @@
 
 Editor de mapas mentais em Python + PySide6 (Qt), inspirado no XMind.
 
+<img width="1657" height="1116" alt="screenshot-01" src="https://github.com/user-attachments/assets/26745df8-ea3a-4bac-9117-bfc8514023df" />
+
 - Roda no **macOS, Windows e Linux**.
 - Funciona com **7 esqueletos**, **21 temas de cores em 6 variações** (mais as suas paletas) e **7 estilos de ramo**.
 - Faz **edição completa pelo teclado** e **desfazer ilimitado até 100 níveis**.
