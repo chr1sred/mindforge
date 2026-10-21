@@ -28,7 +28,7 @@ from mindforge.view import style
 from mindforge.view.icons import branch_style_icon, icon, line_end_icon, pattern_icon, shape_icon
 from mindforge.view.colorpanel import (
     PaletteButton, PaletteDialog, PalettePopup, WheelButton, palette_name, palette_store,
-    variant_thumbnail,
+    quick_theme_pixmap, variant_thumbnail,
 )
 from mindforge.view.painting import MARKER_LABELS, default_family, ensure_fonts, font_available
 from mindforge.view.resources import marker_icon
@@ -44,7 +44,7 @@ GLOBAL_FONTS = ["Inter", "Helvetica Neue", "Avenir Next", "Roboto", "Open Sans",
 MAP_LINE_WIDTHS = [("padrao", N_("Predefinição")), ("fina", N_("Fina")), ("grossa", N_("Grossa"))]
 LEVEL_NAMES = {"root": N_("Tema central"), "main": N_("Tópico principal"), "sub": N_("Subtópico"),
                "floating": N_("Tópico flutuante")}
-THEME_THUMB = QSize(82, 54)
+THEME_THUMB = QSize(70, 46)      # 3 por linha cabem no painel mais estreito
 WEIGHT_NAMES = {100: "Thin", 200: "ExtraLight", 300: "Light", 400: "Regular", 500: "Medium",
                 600: "SemiBold", 700: "Bold", 800: "ExtraBold", 900: "Black"}
 
@@ -252,7 +252,7 @@ class FormatPanel(QWidget):
         self.bold.clicked.connect(lambda on: self.set_styles({"font_weight": 700 if on else 400, "bold": None}))
         self.italic = self._toggle("I", tr("Itálico"), italic=True)
         self.italic.clicked.connect(lambda on: self.set_style("italic", bool(on)))
-        self.strike = self._toggle("S", tr("Riscado"), strike=True)
+        self.strike = self._toggle("S", tr("Tachado"), strike=True)
         self.strike.clicked.connect(lambda on: self.set_style("strike", bool(on)))
         self.case_btn = QToolButton()
         self.case_btn.setObjectName("StyleToggle")
@@ -387,6 +387,30 @@ class FormatPanel(QWidget):
         lay.setContentsMargins(0, 0, 6, 0)
         lay.setSpacing(10)
 
+        # Temas rápidos (1.4): um clique pinta o mapa inteiro
+        lay.addWidget(section_title(tr("Temas rápidos")))
+        qgrid = QGridLayout()
+        qgrid.setHorizontalSpacing(2)
+        qgrid.setVerticalSpacing(2)
+        self.quick_btns: dict[str, QToolButton] = {}
+        for i, (key, q) in enumerate(ct.QUICK_THEMES.items()):
+            b = QToolButton()
+            b.setObjectName("QuickButton")
+            b.setCheckable(True)
+            b.setIcon(QIcon(quick_theme_pixmap(key, 26)))
+            b.setIconSize(QSize(26, 26))
+            b.setToolTip(tr(q.label))
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.clicked.connect(lambda _c=False, k=key: self._apply_quick_theme(k))
+            qgrid.addWidget(b, i // 6, i % 6)
+            self.quick_btns[key] = b
+        qrow = QHBoxLayout()            # grade centralizada, sem forçar a largura do painel
+        qrow.addStretch(1)
+        qrow.addLayout(qgrid)
+        qrow.addStretch(1)
+        lay.addLayout(qrow)
+
+        lay.addWidget(separator())
         lay.addWidget(section_title(tr("Esqueleto")))
         self.skeleton_btn = CardButton()
         self.skeleton_btn.clicked.connect(self._open_skeletons)
@@ -427,6 +451,23 @@ class FormatPanel(QWidget):
         self.theme_name = QLabel()
         self.theme_name.setObjectName("Muted")
         lay.addWidget(self.theme_name)
+        # aviso: tópicos com cor aplicada à mão não seguem o tema
+        man = QHBoxLayout()
+        man.setSpacing(4)
+        self.manual_label = QLabel()
+        self.manual_label.setObjectName("Muted")
+        man.addWidget(self.manual_label)
+        self.manual_reset = QPushButton(tr("Repor cores"))
+        self.manual_reset.setObjectName("LinkButton")
+        self.manual_reset.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.manual_reset.setToolTip(tr("Remove só as cores aplicadas à mão; fonte, forma e tamanho continuam"))
+        self.manual_reset.clicked.connect(self._reset_manual_colors)
+        man.addWidget(self.manual_reset)
+        man.addStretch(1)
+        self.manual_row = QWidget()
+        self.manual_row.setLayout(man)
+        man.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(self.manual_row)
 
         lay.addWidget(separator())
         self.bg_btn = SwatchButton(False)
@@ -471,7 +512,7 @@ class FormatPanel(QWidget):
         self.compact = QCheckBox(tr("Compactar mapa"))
         self.compact.clicked.connect(lambda on: self._set_setting("compact", bool(on)))
         lay.addWidget(self.compact)
-        self.fish_align = QCheckBox(tr("Alinhar tópicos principais (espinha de peixe)"))
+        self.fish_align = QCheckBox(tr("Alinhar espinhas"))
         self.fish_align.setToolTip(tr("Todas as espinhas com o mesmo comprimento, em fileiras retas"))
         self.fish_align.clicked.connect(lambda on: self._set_setting("fishbone_align", bool(on)))
         lay.addWidget(self.fish_align)
@@ -695,6 +736,13 @@ class FormatPanel(QWidget):
         col = style.chrome().text
         mb = m.setting("branch_style")
         self.map_branch.show_value(mb, branch_style_icon(mb or (lay.default_branch if lay else "colchete_curvo"), col))
+        active = ct.active_quick_theme(m)
+        for k, b in self.quick_btns.items():
+            b.setChecked(k == active)
+        manual = len(ops.topics_with_manual_colors(m))
+        self.manual_row.setVisible(manual > 0)
+        if manual:
+            self.manual_label.setText(ntr("{n} tópico com cor manual ·", "{n} tópicos com cores manuais ·", manual))
         rainbow = bool(m.setting("rainbow"))
         self.rainbow.setChecked(rainbow)
         theme = ct.effective_theme(m)
@@ -802,11 +850,21 @@ class FormatPanel(QWidget):
 
     # ------------------------------------------------------- temas de cores
     def _apply_colors(self, palette_setting: Optional[dict], variant: Optional[int]) -> None:
-        def fn(m):
-            ops.set_color_theme(m, palette_setting, variant)
-            m.settings.pop("background", None)      # o fundo faz parte do tema (ex.: Noturno)
         self.canvas.commit_edit()
-        self.canvas.doc.apply(N_("Mudar tema de cores"), fn)
+        self.canvas.doc.apply(N_("Mudar tema de cores"),
+                              lambda m: ops.apply_color_theme(m, palette_setting, variant))
+
+    def _apply_quick_theme(self, key: str) -> None:
+        q = ct.QUICK_THEMES.get(key)
+        if q is None:
+            return
+        self.canvas.commit_edit()
+        self.canvas.doc.apply(N_("Aplicar tema rápido"), lambda m: ops.apply_color_theme(
+            m, ct.CATALOG[q.palette_id].as_setting(), q.variant, reset_manual_colors=True))
+
+    def _reset_manual_colors(self) -> None:
+        self.canvas.commit_edit()
+        self.canvas.doc.apply(N_("Repor cores"), lambda m: ops.clear_colors(m))
 
     def _open_palettes(self) -> None:
         m = self.canvas.doc.map

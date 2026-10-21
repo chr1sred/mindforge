@@ -226,6 +226,8 @@ class MindScene(QGraphicsScene):
     def _sync_relations(self, color: str) -> None:
         m = self.doc.map
         keep = set()
+        obstacles = [it.mapRectToScene(it.box_rect()).adjusted(-4, -3, 4, 3)
+                     for it in self.topic_items.values() if it.isVisible()]
         for r in m.relations:
             a = self.topic_items.get(r.source)
             b = self.topic_items.get(r.target)
@@ -239,7 +241,9 @@ class MindScene(QGraphicsScene):
                 self.rel_items[r.id] = ri
             ra = a.mapRectToScene(a.box_rect())
             rb = b.mapRectToScene(b.box_rect())
-            ri.set_geometry(ra, rb, r.label, color)
+            ri.set_geometry(ra, rb, r.label, color, obstacles)
+            if r.label:     # rótulos seguintes também evitam este
+                obstacles.append(ri.label_scene_rect())
         for rid in list(self.rel_items):
             if rid not in keep:
                 self.removeItem(self.rel_items.pop(rid))

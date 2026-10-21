@@ -566,4 +566,22 @@ EN: dict[str, str] = {
     "Tema anterior: escolha uma variação para atualizar": "Previous theme: pick a variation to update",
     "Mudar tema de cores": "Change color theme",
     "“{nome}” será o tema dos novos mapas.": "“{nome}” will be the theme for new maps.",
+
+    # -------------------------------------------------- 1.4
+    "Noite": "Night",
+    "Neon noturno": "Neon Night",
+    "Tachado": "Strikethrough",
+    "Repor cores": "Reset colors",
+    "Remove só as cores aplicadas à mão; fonte, forma e tamanho continuam":
+        "Removes only manually applied colors; font, shape and size stay",
+    "{n} tópico com cor manual ·": "{n} topic with a manual color ·",
+    "{n} tópicos com cores manuais ·": "{n} topics with manual colors ·",
+    "Aplicar tema rápido": "Apply quick theme",
+    "Formatar texto": "Format Text",
+    "Negrito  (Ctrl+B)": "Bold  (Ctrl+B)",
+    "Itálico  (Ctrl+I)": "Italic  (Ctrl+I)",
+    "Tachado  (Ctrl+Shift+X)": "Strikethrough  (Ctrl+Shift+X)",
+    "Temas rápidos": "Quick themes",
+    "Alinhar espinhas": "Align bones",
+    "Negrito / Itálico / Tachado": "Bold / Italic / Strikethrough",
 }

@@ -37,6 +37,8 @@ def test_mapas_antigos_continuam_identicos(qapp):
     ref = json.load(open(os.path.join(DATA, "legacy_styles.json"), encoding="utf-8"))
     for key, exp in ref.items():
         theme, layout, rb = key.split("|")
+        if layout == "espinha_peixe":
+            continue        # 1.4: espinha de peixe passou a seguir as cores do tema (mudança aprovada)
         m = _mapa(layout, theme)
         m.settings["rainbow"] = rb == "True"
         s = _cena(m)

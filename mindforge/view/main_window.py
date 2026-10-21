@@ -219,6 +219,9 @@ class MainWindow(QMainWindow):
         self._canvas_act(["Ctrl+D"], c.duplicate)
         self._canvas_act(["Ctrl+A"], c.select_all)
         self._canvas_act(["Ctrl+R"], c.start_relation)
+        self._canvas_act(["Ctrl+B"], lambda: c.toggle_text_format("bold"))
+        self._canvas_act(["Ctrl+I"], lambda: c.toggle_text_format("italic"))
+        self._canvas_act(["Ctrl+Shift+X"], lambda: c.toggle_text_format("strike"))
 
     def _build_menus(self) -> None:
         c = self.canvas
@@ -269,6 +272,10 @@ class MainWindow(QMainWindow):
             e.addAction(self._act(_mac(text), slot))
         e.addSeparator()
         e.addAction(self._act(_mac(tr("Editar texto  (F2 / Espaço)")), lambda: c.start_edit()))
+        fmt = e.addMenu(tr("Formatar texto"))
+        for text, kind in ((tr("Negrito  (Ctrl+B)"), "bold"), (tr("Itálico  (Ctrl+I)"), "italic"),
+                           (tr("Tachado  (Ctrl+Shift+X)"), "strike")):
+            fmt.addAction(self._act(_mac(text), lambda k=kind: c.toggle_text_format(k)))
         self.a_find = self._act(tr("Buscar…"), self.find_bar.open_bar, ["Ctrl+F"])
         e.addAction(self.a_find)
 
@@ -306,6 +313,8 @@ class MainWindow(QMainWindow):
             self.layout_menu.addAction(a)
         self.theme_menu = o.addMenu(tr("Tema de cores"))
         self.theme_menu.aboutToShow.connect(self._fill_theme_menu)
+        self.quick_menu = o.addMenu(tr("Temas rápidos"))
+        self.quick_menu.aboutToShow.connect(self._fill_quick_menu)
 
         # -------------------------------------------------------- Visualizar
         v = mb.addMenu(tr("&Visualizar"))
@@ -461,6 +470,19 @@ class MainWindow(QMainWindow):
         self.canvas.commit_edit()
         self.doc.apply(N_("Mudar estrutura"), lambda m: ops.set_layout(m, key))
         QTimer.singleShot(0, self.canvas.zoom_fit)
+
+    def _fill_quick_menu(self) -> None:
+        from mindforge import colorthemes as ct
+        from mindforge.view.colorpanel import quick_theme_pixmap
+        menu = self.quick_menu
+        menu.clear()
+        active = ct.active_quick_theme(self.doc.map)
+        for key, q in ct.QUICK_THEMES.items():
+            a = menu.addAction(QIcon(quick_theme_pixmap(key, 18)), tr(q.label))
+            a.setCheckable(True)
+            a.setChecked(key == active)
+            a.setMenuRole(QAction.MenuRole.NoRole)
+            a.triggered.connect(lambda _c=False, k=key: self.panel._apply_quick_theme(k))
 
     def _fill_theme_menu(self) -> None:
         from mindforge import colorthemes as ct

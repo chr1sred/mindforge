@@ -67,7 +67,8 @@ def strip_pixmap(colors, size: QSize = STRIP_SIZE, radius: float = 5, dpr: float
     return pm
 
 
-def wheel_pixmap(colors, size: int = 44, hub: str = "#2B2D33", dpr: float = 2.0) -> QPixmap:
+def wheel_pixmap(colors, size: int = 44, hub: str = "#2B2D33", dpr: float = 2.0,
+                 hub_ratio: float = 0.17, outline: Optional[str] = None) -> QPixmap:
     pm = QPixmap(round(size * dpr), round(size * dpr))
     pm.setDevicePixelRatio(dpr)
     pm.fill(Qt.GlobalColor.transparent)
@@ -80,11 +81,20 @@ def wheel_pixmap(colors, size: int = 44, hub: str = "#2B2D33", dpr: float = 2.0)
     for i, c in enumerate(cols):
         p.setBrush(QColor(c))
         p.drawPie(r, int((90 - i * span) * 16), int(-span * 16))
+    hr = size * hub_ratio
+    if outline:     # separa o miolo do anel (miolo da mesma cor de um ramo)
+        p.setBrush(QColor(outline))
+        p.drawEllipse(QPointF(size / 2, size / 2), hr + 1.6, hr + 1.6)
     p.setBrush(QColor(hub))
-    hr = size * 0.17
     p.drawEllipse(QPointF(size / 2, size / 2), hr, hr)
     p.end()
     return pm
+
+
+def quick_theme_pixmap(key: str, size: int = 30) -> QPixmap:
+    """Círculo do tema rápido: miolo = cor do central, anel = cores dos ramos."""
+    central, branches, bg = ct.quick_theme_colors(ct.QUICK_THEMES[key])
+    return wheel_pixmap(branches, size, hub=central, hub_ratio=0.3, outline=bg)
 
 
 def sample_for_preview() -> Topic:

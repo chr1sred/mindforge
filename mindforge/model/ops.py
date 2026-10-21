@@ -232,6 +232,22 @@ def set_styles(m: MindMap, ids: Iterable[str], values: dict) -> None:
                 t.style[key] = value
 
 
+COLOR_STYLE_KEYS = ("fill", "text_color", "line_color", "border")
+
+
+def topics_with_manual_colors(m: MindMap) -> list[str]:
+    """Tópicos com alguma cor aplicada à mão (vencem o tema de cores)."""
+    return [t.id for t in m.all_topics() if any(k in t.style for k in COLOR_STYLE_KEYS)]
+
+
+def clear_colors(m: MindMap, ids: Optional[Iterable[str]] = None) -> None:
+    """Remove só as cores manuais (preenchimento, texto, linha, borda); forma, fonte etc. ficam."""
+    targets = [_get(m, i) for i in ids] if ids is not None else list(m.all_topics())
+    for t in targets:
+        for k in COLOR_STYLE_KEYS:
+            t.style.pop(k, None)
+
+
 def clear_style(m: MindMap, ids: Iterable[str]) -> None:
     for tid in ids:
         _get(m, tid).style.clear()
@@ -272,6 +288,19 @@ def set_color_theme(m: MindMap, palette_setting: Optional[dict], variant: Option
         if not 0 <= int(variant) <= 5:
             raise OpError("Variação inválida.")
         set_map_setting(m, "color_variant", int(variant))
+
+
+def apply_color_theme(m: MindMap, palette_setting: Optional[dict], variant: Optional[int] = None,
+                      reset_manual_colors: bool = False) -> None:
+    """Troca o tema de cores recolorindo o mapa INTEIRO (1.4).
+
+    A roda do Ramo colorido volta para "Do tema", a cor estática e o fundo voltam aos do tema.
+    Com reset_manual_colors (Temas rápidos), as cores aplicadas à mão também saem."""
+    set_color_theme(m, palette_setting, variant)
+    for key in ("background", "branch_palette", "static_color"):
+        m.settings.pop(key, None)
+    if reset_manual_colors:
+        clear_colors(m)
 
 
 def set_map_setting(m: MindMap, key: str, value) -> None:

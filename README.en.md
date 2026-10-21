@@ -7,7 +7,7 @@ A mind map editor in Python + PySide6 (Qt), inspired by XMind.
 <img width="1588" height="1058" alt="screenshot-01_en" src="https://github.com/user-attachments/assets/3613f29f-2d08-452a-9438-248f9151a56b" />
 
 - Runs on **macOS, Windows and Linux**.
-- **7 structures**, **21 color themes in 6 variations** (plus your own palettes) and **7 branch styles**.
+- **7 structures**, **12 quick themes**, **21 color themes in 6 variations** (plus your own palettes) and **7 branch styles**.
 - **Full keyboard editing** and **undo up to 100 levels**.
 - Exports **transparent PNG, and vector SVG and PDF**.
 - Interface in **Portuguese (PT-BR) and English (EN-US)**.
@@ -70,6 +70,7 @@ On macOS, `Ctrl` = `⌘`. The full list is also under **Help → Keyboard shortc
 | Expand the whole branch | `Alt`+click the number |
 | Undo / redo | `Ctrl+Z` / `Ctrl+Shift+Z` or `Ctrl+Y` |
 | Copy / cut / paste / duplicate | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` / `Ctrl+D` |
+| Bold / italic / strikethrough | `Ctrl+B` / `Ctrl+I` / `Ctrl+Shift+X` (also while editing) |
 | Relationship | `Ctrl+R`, then click the target |
 | Floating topic | Double-click the background |
 | Save / export / find | `Ctrl+S` / `Ctrl+E` / `Ctrl+F` |
@@ -108,6 +109,16 @@ The language lives in **Settings → Idioma / Language**:
 | **Style** | Collapsible sections: **Shape** (9 shapes, fill, fixed width), **Border** (style, thickness and color), **Text** (font, weight, size, color, bold, italic, strikethrough, case, alignment), **Branch** (style, line, end, thickness, color), Markers and Note. **Apply to level** and **Reset style** buttons |
 | **Map** | Structure (gallery with thumbnails), color theme (palette + 6 variations), background color, global font, default branch style, line width, rainbow branches, compact map and (fishbone only) align main topics |
 
+### Quick themes
+
+At the top of the **Map** tab, 12 circles paint the whole map in one click. Each circle’s center shows the central topic color and its ring shows the branch colors. Also under **Arrange → Quick themes**.
+
+| What a quick theme does | What it leaves alone |
+|---|---|
+| Applies palette + variation, resets the rainbow-branch wheel to "From theme", removes the static color and custom background and **resets manually applied colors** | Structure, fonts, sizes, shapes and branch style |
+
+Themes: Classic, Night, Ocean, Pastel, Executive, Graphite, Forest, Sunset, Vibrant, Earth, Sage and Neon Night. Everything is a single `Ctrl+Z`.
+
 ### Color theme (XMind style)
 
 Under **Map → Color theme**, the button with the color strip opens a picker with three tabs:
@@ -132,7 +143,8 @@ Below the button, the **6 variations** apply the same palette in different ways:
 **Details:**
 
 - **Guaranteed contrast.** Text and lines are adjusted automatically to stay readable with any palette, even very light ones.
-- **Background.** Changing the theme or variation resets the background to the theme’s (Night has a dark background).
+- **Recolors the whole map.** Changing the theme or variation resets the rainbow-branch wheel to "From theme" and removes the static color and custom background, so the center, main topics, subtopics and lines all change together (Night has a dark background).
+- **Manual colors.** Topics with manually applied colors keep them; the panel shows how many and offers **Reset colors** (removes only colors; font, shape and size stay).
 - **Manual style wins.** Formatting you applied to a topic stays when you change themes; **Reset style** goes back to the theme.
 - **Your palettes travel with the file.** Colors are stored inside the `.mfmap`, so the map looks the same on another computer even if the palette doesn’t exist there or was deleted.
 - **Default for new maps.** In the picker, **Use as default for new maps** saves the current theme and variation. Palettes and the default live in `temas.json`, in the app’s data folder.
@@ -158,7 +170,7 @@ The top bar has Topic (with an options menu), Subtopic, Relationship, Marker, No
 
 The interface follows the system’s light/dark mode. To force one, set `MINDFORGE_APARENCIA=claro` (light) or `MINDFORGE_APARENCIA=escuro` (dark).
 
-The **fishbone** grows from left to right. Upper and lower bones form pairs that leave the spine from the same point, each as long as its content, and no text ever crosses a line.
+The **fishbone** grows from left to right, with main topics as capsules filled with the branch color and subtopics as text along the ribs; all 6 color variations apply to it too. Upper and lower bones form pairs that leave the spine from the same point, each as long as its content, and no text ever crosses a line.
 
 ## 5. Export
 
@@ -210,7 +222,7 @@ mindforge/
 QT_QPA_PLATFORM=offscreen python -m pytest
 ```
 
-The 205 tests cover:
+The 218 tests cover:
 
 - **Model:** operations and serialization.
 - **Undo/redo:** every operation and the 100-level limit.
@@ -220,6 +232,7 @@ The 205 tests cover:
 - **Shortcuts:** keyboard shortcuts, including conflicts while editing.
 - **Collapse and right button (1.3):** hidden count, circle never colliding with topics in every structure, `⊖` left out of exports, clicks anywhere in a topic’s box in every structure and zoom, the control’s own hover, double-click on the control, simple click vs. drag.
 - **Languages (1.3):** every key translated, placeholders and shortcuts preserved, no Portuguese words in the English interface, language switch keeping document, selection and undo.
+- **1.4:** changing the theme recolors every level in every structure (even with a wheel/static color chosen), filled fishbone with working variations, manual colors (count and Reset colors), 12 quick themes, bold/italic/strikethrough on the selection and while editing, relationship labels never covering topics, performance with 1,000 topics and a "fluidity" test with hundreds of random keyboard, mouse, theme and language actions without a single error.
 - **Color themes (1.3):** minimum text and line contrast in every palette and variation, older maps identical, wheel never changes the center, static color, palette stored in the file, user palettes (create, edit, duplicate, delete, limit, corrupted file), auto-complete, default for new maps, panel, menu and export warning.
 - **Branches and style (1.2):** the 7 styles in every direction, ends, line patterns, single trunk, fishbone with no line crossing text, shapes, strikethrough in SVG, compatibility with older maps, and the panel.
 

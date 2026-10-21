@@ -189,6 +189,10 @@ def stylesheet(c: Chrome) -> str:
                                padding: 2px; }}
     QToolButton#WheelButton:hover {{ border-color: {c.border}; }}
     QToolButton#WheelButton:checked {{ border-color: {c.accent}; }}
+    QToolButton#QuickButton {{ background: transparent; border: 2px solid transparent; border-radius: 17px;
+                               padding: 2px; }}
+    QToolButton#QuickButton:hover {{ border-color: {c.border}; }}
+    QToolButton#QuickButton:checked {{ border-color: {c.accent}; }}
     QToolButton#ColorSlot {{ background: {c.card}; border: 1px dashed {c.border}; border-radius: 8px;
                              color: {c.muted}; font-size: 18px; }}
     QToolButton#ColorSlot:hover {{ border: 1px solid {c.accent}; }}

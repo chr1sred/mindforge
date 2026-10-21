@@ -86,6 +86,49 @@ BRANCH_PALETTES: dict[str, tuple[str, tuple[str, ...]]] = {
     "grafite": (N_("Grafite"), ("#2B2D42", "#4A4E69", "#5C677D", "#7D8597", "#33415C", "#6C757D")),
 }
 
+@dataclass(frozen=True)
+class QuickTheme:
+    key: str
+    label: str
+    palette_id: str
+    variant: int
+
+
+# Temas rápidos (1.4): paleta + variação prontas que pintam o mapa inteiro com um clique.
+QUICK_THEMES: dict[str, QuickTheme] = {q.key: q for q in (
+    QuickTheme("classico", N_("Clássico"), "colorido/arco_iris", 0),
+    QuickTheme("noite", N_("Noite"), "colorido/aurora", 4),
+    QuickTheme("oceano", N_("Oceano"), "colorido/oceano", 5),
+    QuickTheme("pastel", N_("Pastel"), "colorido/pastel", 0),
+    QuickTheme("executivo", N_("Executivo"), "classico/executivo", 0),
+    QuickTheme("grafite", N_("Grafite"), "classico/grafite", 3),
+    QuickTheme("floresta", N_("Floresta"), "colorido/floresta", 0),
+    QuickTheme("por_do_sol", N_("Pôr do sol"), "colorido/por_do_sol", 1),
+    QuickTheme("vibrante", N_("Vibrante"), "colorido/vibrante", 0),
+    QuickTheme("terra", N_("Terra"), "classico/terra", 2),
+    QuickTheme("salvia", N_("Sálvia"), "classico/salvia", 5),
+    QuickTheme("neon_noturno", N_("Neon noturno"), "colorido/neon_suave", 4),
+)}
+
+
+def quick_theme_colors(q: QuickTheme) -> tuple[str, tuple[str, ...], str]:
+    """(cor do central, cores dos ramos, fundo) — para desenhar o círculo do tema rápido."""
+    th = build_theme(CATALOG[q.palette_id].colors, q.variant)
+    return th.root.get("fill") or th.background, th.palette, th.background
+
+
+def active_quick_theme(m) -> Optional[str]:
+    """Tema rápido em uso (mesma paleta + variação, sem roda/cor estática)."""
+    p = palette_from_setting(m.setting("color_theme"))
+    if p is None or m.setting("branch_palette") or m.setting("static_color"):
+        return None
+    v = int(m.setting("color_variant") or 0)
+    for q in QUICK_THEMES.values():
+        if q.palette_id == p.id and q.variant == v:
+            return q.key
+    return None
+
+
 VARIANTS: tuple[str, ...] = (
     N_("Contraste"), N_("Central colorido"), N_("Suave"), N_("Contorno"), N_("Noturno"), N_("Tom sobre tom"),
 )

@@ -33,6 +33,7 @@ def window(qapp):
     # sem isso, em máquinas rápidas (ex.: Mac M1) ele roda no meio do teste
     QTest.qWait(150)
     yield w
+    w.canvas.cancel_edit()      # edição aberta viraria alteração ao fechar
     w.doc.mark_saved()          # evita a pergunta "salvar alterações?"
     w.close()
     QTest.qWait(10)

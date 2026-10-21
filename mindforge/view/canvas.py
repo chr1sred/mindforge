@@ -108,6 +108,9 @@ class MindCanvas(QGraphicsView):
         self.mscene.sync(overrides)
         self.setBackgroundBrush(QColor(self.mscene.background_color))
         if self.editor:
+            item = self.mscene.topic_items.get(self.editor.tid)
+            if item is not None and item.vis is not None:
+                self._style_editor(self.editor, item)
             self._place_editor()
 
     def center_on_root(self) -> None:
@@ -238,12 +241,8 @@ class MindCanvas(QGraphicsView):
         if self.current() != tid:
             self.select_id(tid)
         ed = EditorItem(self, tid, topic.text)
-        ed.setFont(item.vis.font)
-        ed.setDefaultTextColor(QColor(item.vis.style.text_color))
+        self._style_editor(ed, item)
         ed.set_alignment("left")     # durante a digitação o texto cresce a partir da esquerda
-        f = QFont(item.vis.font)
-        f.setStrikeOut(item.vis.style.strike)
-        ed.setFont(f)
         ed.setPlainText(topic.text if replace_text is None else replace_text)
         self.mscene.addItem(ed)
         self.editor = ed
@@ -260,6 +259,36 @@ class MindCanvas(QGraphicsView):
         self.mscene.setFocusItem(ed, Qt.FocusReason.OtherFocusReason)
         self.ensure_visible(tid)
         self.editing_changed.emit(True)
+
+    @staticmethod
+    def _style_editor(ed: EditorItem, item) -> None:
+        """Fonte e cor do editor iguais às do tópico (inclusive negrito/itálico/tachado)."""
+        f = QFont(item.vis.font)
+        f.setStrikeOut(item.vis.style.strike)
+        ed.setFont(f)
+        ed.setDefaultTextColor(QColor(item.vis.style.text_color))
+
+    # ------------------------------------------------- formatação rápida (1.4)
+    TEXT_FORMATS = {"bold": N_("Negrito"), "italic": N_("Itálico"), "strike": N_("Tachado")}
+
+    def toggle_text_format(self, kind: str) -> None:
+        """⌘B / ⌘I / ⌘⇧X: liga/desliga no(s) tópico(s) inteiro(s). Seleção mista → liga em todos.
+
+        Funciona também durante a edição do texto (vale para o tópico que está sendo editado)."""
+        if kind not in self.TEXT_FORMATS:
+            return
+        ids = [self.editor.tid] if self.editor is not None else self.selected_ids()
+        vis = self.mscene.visuals
+        ids = [i for i in ids if i in vis]
+        if not ids:
+            return
+        state = {"bold": lambda s: s.bold, "italic": lambda s: s.italic, "strike": lambda s: s.strike}[kind]
+        on = not all(state(vis[i].style) for i in ids)
+        if kind == "bold":
+            values = {"font_weight": 700 if on else 400, "bold": None}
+        else:
+            values = {kind: on}
+        self.doc.apply(self.TEXT_FORMATS[kind], lambda m: ops.set_styles(m, ids, values), select=list(ids))
 
     def is_editing(self) -> bool:
         return self.editor is not None

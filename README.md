@@ -7,7 +7,7 @@ Editor de mapas mentais em Python + PySide6 (Qt), inspirado no XMind.
 <img width="1657" height="1116" alt="screenshot-01" src="https://github.com/user-attachments/assets/26745df8-ea3a-4bac-9117-bfc8514023df" />
 
 - Roda no **macOS, Windows e Linux**.
-- Funciona com **7 esqueletos**, **21 temas de cores em 6 variações** (mais as suas paletas) e **7 estilos de ramo**.
+- Funciona com **7 esqueletos**, **12 temas rápidos**, **21 temas de cores em 6 variações** (mais as suas paletas) e **7 estilos de ramo**.
 - Faz **edição completa pelo teclado** e **desfazer ilimitado até 100 níveis**.
 - Exporta **PNG transparente, SVG e PDF vetoriais**.
 - Interface em **português (PT-BR) e inglês (EN-US)**.
@@ -70,6 +70,7 @@ No macOS, `Ctrl` = `⌘`. A lista completa também está em **Ajuda → Atalhos 
 | Expandir o ramo inteiro | `Alt`+clique no número |
 | Desfazer / refazer | `Ctrl+Z` / `Ctrl+Shift+Z` ou `Ctrl+Y` |
 | Copiar / recortar / colar / duplicar | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` / `Ctrl+D` |
+| Negrito / itálico / tachado | `Ctrl+B` / `Ctrl+I` / `Ctrl+Shift+X` (também durante a edição) |
 | Relação | `Ctrl+R`, depois clique no destino |
 | Tópico flutuante | Duplo clique no fundo |
 | Salvar / exportar / buscar | `Ctrl+S` / `Ctrl+E` / `Ctrl+F` |
@@ -105,8 +106,18 @@ O idioma fica em **Ajustes → Idioma / Language**:
 
 | Aba | O que tem |
 |---|---|
-| **Estilo** | Seções recolhíveis: **Forma** (9 formas, preenchimento, largura fixa), **Limite** (estilo, espessura e cor da borda), **Texto** (fonte, peso, tamanho, cor, negrito, itálico, riscado, maiúsculas, alinhamento), **Ramo** (estilo, linha, ponta, espessura, cor), Marcadores e Nota. Botões **Aplicar ao nível** e **Repor estilo** |
+| **Estilo** | Seções recolhíveis: **Forma** (9 formas, preenchimento, largura fixa), **Limite** (estilo, espessura e cor da borda), **Texto** (fonte, peso, tamanho, cor, negrito, itálico, tachado, maiúsculas, alinhamento), **Ramo** (estilo, linha, ponta, espessura, cor), Marcadores e Nota. Botões **Aplicar ao nível** e **Repor estilo** |
 | **Mapa** | Esqueleto (galeria com miniaturas), tema de cores (paleta + 6 variações), cor de fundo, tipo de letra global, estilo de ramo padrão, largura da linha, ramo colorido, compactar mapa e (na espinha de peixe) alinhar tópicos principais |
+
+### Temas rápidos
+
+No topo da aba **Mapa**, 12 círculos pintam o mapa inteiro com um clique. O miolo de cada círculo mostra a cor do tópico central e o anel, as cores dos ramos. Também ficam em **Organizar → Temas rápidos**.
+
+| O que o tema rápido faz | O que ele não muda |
+|---|---|
+| Aplica paleta + variação, volta a roda do Ramo colorido para "Do tema", tira a cor estática e o fundo personalizado e **repõe as cores aplicadas à mão** | Esqueleto, fontes, tamanhos, formas e estilo de ramo |
+
+Temas: Clássico, Noite, Oceano, Pastel, Executivo, Grafite, Floresta, Pôr do sol, Vibrante, Terra, Sálvia e Neon noturno. Tudo vira um único `Ctrl+Z`.
 
 ### Tema de cores (estilo XMind)
 
@@ -132,7 +143,8 @@ Abaixo do botão, as **6 variações** aplicam a mesma paleta de jeitos diferent
 **Detalhes:**
 
 - **Contraste garantido.** Textos e linhas são ajustados automaticamente para continuarem legíveis em qualquer paleta, inclusive nas muito claras.
-- **Fundo.** Trocar de tema ou variação volta a cor de fundo para a do tema (a variação Noturno tem fundo escuro).
+- **Recolore o mapa inteiro.** Trocar de tema ou variação volta a roda do Ramo colorido para "Do tema" e tira a cor estática e o fundo personalizado, então central, principais, subtópicos e linhas mudam juntos (a variação Noturno tem fundo escuro).
+- **Cores manuais.** Tópicos com cor aplicada à mão continuam com ela; o painel avisa quantos são e oferece **Repor cores** (remove só as cores; fonte, forma e tamanho ficam).
 - **Estilo manual vence.** O que você formatou à mão num tópico continua igual ao trocar de tema; **Repor estilo** volta ao tema.
 - **Paletas suas no arquivo.** As cores ficam gravadas dentro do `.mfmap`: o mapa abre igual em outro computador, mesmo que a paleta não exista lá ou tenha sido excluída.
 - **Padrão para novos mapas.** No seletor, **Usar como padrão para novos mapas** guarda o tema e a variação atuais. As paletas e o padrão ficam em `temas.json`, na pasta de dados do app.
@@ -158,7 +170,7 @@ A barra superior traz Tópico (com menu de opções), Subtópico, Relação, Mar
 
 A interface acompanha o modo claro/escuro do sistema. Para forçar um modo, defina a variável `MINDFORGE_APARENCIA=claro` ou `MINDFORGE_APARENCIA=escuro`.
 
-A **espinha de peixe** cresce da esquerda para a direita. As espinhas de cima e de baixo formam pares que saem do mesmo ponto da coluna, cada uma com o comprimento do seu conteúdo, e nenhum texto cruza uma linha.
+A **espinha de peixe** cresce da esquerda para a direita, com os tópicos principais em cápsulas preenchidas na cor do ramo e os subtópicos só com texto sobre as costelas; as 6 variações de cor valem também para ela. As espinhas de cima e de baixo formam pares que saem do mesmo ponto da coluna, cada uma com o comprimento do seu conteúdo, e nenhum texto cruza uma linha.
 
 ## 5. Exportação
 
@@ -210,7 +222,7 @@ mindforge/
 QT_QPA_PLATFORM=offscreen python -m pytest
 ```
 
-Os 205 testes cobrem:
+Os 218 testes cobrem:
 
 - **Modelo:** operações e serialização.
 - **Desfazer/refazer:** todas as operações e o limite de 100 níveis.
@@ -220,6 +232,7 @@ Os 205 testes cobrem:
 - **Atalhos:** os de teclado, incluindo os conflitos durante a edição.
 - **Recolher e botão direito (1.3):** contagem de escondidos, círculo sem colidir com tópicos em todos os esqueletos, `⊖` fora da exportação, clique em toda a caixa do tópico em todos os esqueletos e zooms, hover próprio do controle, duplo clique no controle, clique simples × arrasto.
 - **Idiomas (1.3):** toda chave com tradução, marcadores e atalhos preservados, nenhuma palavra em português na interface inglesa, troca de idioma preservando documento, seleção e desfazer.
+- **1.4:** trocar o tema recolore todos os níveis em todos os esqueletos (mesmo com roda/cor estática escolhidas), espinha de peixe preenchida com variações funcionando, cores manuais (contagem e Repor cores), 12 temas rápidos, negrito/itálico/tachado na seleção e durante a edição, rótulos de relação sem cobrir tópicos, desempenho com 1.000 tópicos e um teste de "fluidez" com centenas de ações aleatórias de teclado, mouse, temas e idioma sem nenhum erro.
 - **Temas de cores (1.3):** contraste mínimo de texto e linhas em todas as paletas e variações, mapas antigos idênticos, roda sem alterar o central, cor estática, paleta dentro do arquivo, paletas do usuário (criar, editar, duplicar, excluir, limite, arquivo corrompido), completar automaticamente, padrão para novos mapas, painel, menu e aviso de exportação.
 - **Ramos e estilo (1.2):** os 7 estilos em todas as direções, pontas, padrões de linha, tronco único, espinha de peixe sem nenhuma linha cruzando texto, formas, riscado no SVG, compatibilidade com mapas antigos e o painel.
 

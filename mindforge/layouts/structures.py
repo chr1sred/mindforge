@@ -214,10 +214,11 @@ class FishboneLayout(Layout):
     START = 48.0        # distância do tema central até o primeiro par
     MIN_H = 64.0
     TAIL = 40.0
+    # Só estrutura (forma e espaçamento), nunca cor: as cores vêm do tema/variação (1.4).
+    # Principais em cápsula (preenchida conforme o tema); subtópicos só com texto sobre as costelas.
     hints = {
-        "main": dict(shape="capsula", fill="$bg", border="$branch", border_width=2.0,
-                     text_color="$ink", weight=600),
-        "sub": dict(shape="nenhuma", fill=None, border=None, border_width=0.0, text_color="$deep",
+        "main": dict(shape="capsula"),
+        "sub": dict(shape="nenhuma", fill=None, border=None, border_width=0.0,
                     pad_x=4, pad_y=3, max_text_width=300),
     }
 

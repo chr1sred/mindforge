@@ -4,6 +4,8 @@ from __future__ import annotations
 import math
 import sys
 import time
+
+import shiboken6
 from typing import TYPE_CHECKING, Optional
 
 from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer
@@ -150,7 +152,7 @@ class TopicItem(QGraphicsItem):
         if self.has_toggle() and not self.vis.collapsed_count:
             self.linger_until = time.monotonic() + HANDLE_LINGER_S
             tid, sc = self.tid, self.scene()
-            QTimer.singleShot(int(HANDLE_LINGER_S * 1000) + 20, lambda: _refresh_handle(sc, tid))
+            _schedule_refresh(sc, tid)
         self.update_handle()
         self.update()
 
@@ -169,11 +171,21 @@ HANDLE_MAX_HIT_R = 20.0       # teto da área de clique, em unidades do mapa (n�
 
 def _refresh_handle(scene, tid: str) -> None:
     try:
-        it = scene.topic_items.get(tid) if scene is not None else None
-    except RuntimeError:        # cena já destruída
+        if scene is None or not shiboken6.isValid(scene):
+            return
+        it = scene.topic_items.get(tid)
+        if it is not None and shiboken6.isValid(it):
+            it.update_handle()
+    except RuntimeError:        # cena/tópico destruídos no meio do caminho (janela fechada, idioma trocado)
+        pass
+
+
+def _schedule_refresh(scene, tid: str) -> None:
+    """Reavalia o ⊖ depois do tempo de espera. O timer é ligado à cena: se a cena for destruída
+    antes (janela fechada, troca de idioma), ele é cancelado pelo Qt."""
+    if scene is None:
         return
-    if it is not None:
-        it.update_handle()
+    QTimer.singleShot(int(HANDLE_LINGER_S * 1000) + 20, scene, lambda: _refresh_handle(scene, tid))
 
 
 class CollapseHandle(QGraphicsItem):
@@ -271,7 +283,7 @@ class CollapseHandle(QGraphicsItem):
         self.hovered = False
         self.topic.linger_until = time.monotonic() + HANDLE_LINGER_S
         sc, tid = self.scene(), self.topic.tid
-        QTimer.singleShot(int(HANDLE_LINGER_S * 1000) + 20, lambda: _refresh_handle(sc, tid))
+        _schedule_refresh(sc, tid)
         self.update()
 
     def mousePressEvent(self, e) -> None:
@@ -399,13 +411,11 @@ class RelationItem(QGraphicsPathItem):
         self.setAcceptHoverEvents(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
-    def set_geometry(self, a: QRectF, b: QRectF, label: str, color: str) -> None:
-        self.prepareGeometryChange()
-        self.label = label
-        self.color = QColor(color)
+    @staticmethod
+    def _curve(a: QRectF, b: QRectF, side: float) -> tuple[QPainterPath, QPointF]:
         ca, cb = a.center(), b.center()
         dist = math.hypot(cb.x() - ca.x(), cb.y() - ca.y()) or 1.0
-        nx, ny = -(cb.y() - ca.y()) / dist, (cb.x() - ca.x()) / dist
+        nx, ny = -(cb.y() - ca.y()) / dist * side, (cb.x() - ca.x()) / dist * side
         bend = min(120.0, dist * 0.3)
         c1 = QPointF(ca.x() + (cb.x() - ca.x()) * 0.25 + nx * bend, ca.y() + (cb.y() - ca.y()) * 0.25 + ny * bend)
         c2 = QPointF(ca.x() + (cb.x() - ca.x()) * 0.75 + nx * bend, ca.y() + (cb.y() - ca.y()) * 0.75 + ny * bend)
@@ -413,6 +423,31 @@ class RelationItem(QGraphicsPathItem):
         p1 = _clip_to_rect(cb, c2, b)
         path = QPainterPath(p0)
         path.cubicTo(c1, c2, p1)
+        return path, c2
+
+    @staticmethod
+    def _crossings(path: QPainterPath, obstacles: list) -> int:
+        n = 0
+        for k in range(1, 40):
+            pt = path.pointAtPercent(k / 40)
+            if any(r.contains(pt) for r in obstacles):
+                n += 1
+        return n
+
+    def set_geometry(self, a: QRectF, b: QRectF, label: str, color: str,
+                     obstacles: Optional[list] = None) -> None:
+        """obstacles: caixas (em coordenadas da cena) que a curva e o rótulo devem evitar (1.4)."""
+        self.prepareGeometryChange()
+        self.label = label
+        self.color = QColor(color)
+        label_obstacles = list(obstacles or [])     # o rótulo evita tudo, inclusive as pontas
+        obstacles = [r for r in label_obstacles if not r.intersects(a) and not r.intersects(b)]
+        path, c2 = self._curve(a, b, 1.0)
+        if obstacles and self._crossings(path, obstacles):
+            alt, alt_c2 = self._curve(a, b, -1.0)       # curva para o outro lado, se cruzar menos tópicos
+            if self._crossings(alt, obstacles) < self._crossings(path, obstacles):
+                path, c2 = alt, alt_c2
+        p1 = path.pointAtPercent(1.0)
         self.setPath(path)
         ang = math.atan2(p1.y() - c2.y(), p1.x() - c2.x())
         arrow = QPainterPath()
@@ -423,6 +458,23 @@ class RelationItem(QGraphicsPathItem):
         arrow.closeSubpath()
         self._arrow = arrow
         self._label_pos = path.pointAtPercent(0.5)
+        obstacles = label_obstacles
+        if self.label and obstacles:
+            # o rótulo desliza ao longo da curva até um ponto livre de tópicos
+            best, best_hit = self._label_pos, None
+            for t in (0.5, 0.42, 0.58, 0.34, 0.66, 0.26, 0.74, 0.18, 0.82):
+                self._label_pos = path.pointAtPercent(t)
+                r = self._label_rect().adjusted(-3, -3, 3, 3)
+                hit = sum((r.intersected(o).width() * r.intersected(o).height()) for o in obstacles
+                          if r.intersects(o))
+                if best_hit is None or hit < best_hit:
+                    best, best_hit = QPointF(self._label_pos), hit
+                if hit == 0:
+                    break
+            self._label_pos = best
+
+    def label_scene_rect(self) -> QRectF:
+        return self._label_rect()
 
     def _label_font(self) -> QFont:
         f = QFont(default_family())
@@ -489,6 +541,22 @@ class RelationItem(QGraphicsPathItem):
         e.accept()
 
 
+def text_format_for(e: QKeyEvent) -> Optional[str]:
+    """Atalhos de formatação de texto: Ctrl/⌘+B, Ctrl/⌘+I, Ctrl/⌘+Shift+X."""
+    mods = e.modifiers()
+    if not mods & Qt.KeyboardModifier.ControlModifier or mods & Qt.KeyboardModifier.AltModifier:
+        return None
+    shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
+    key = e.key()
+    if key == Qt.Key.Key_B and not shift:
+        return "bold"
+    if key == Qt.Key.Key_I and not shift:
+        return "italic"
+    if key == Qt.Key.Key_X and shift:
+        return "strike"
+    return None
+
+
 class EditorItem(QGraphicsTextItem):
     """Editor de texto embutido no tópico.
 
@@ -529,6 +597,11 @@ class EditorItem(QGraphicsTextItem):
         if key == Qt.Key.Key_Tab:
             self.canvas.commit_edit()
             self.canvas.add_child()
+            e.accept()
+            return
+        fmt = text_format_for(e)
+        if fmt:         # ⌘B / ⌘I / ⌘⇧X durante a edição: formata o tópico sem sair da edição
+            self.canvas.toggle_text_format(fmt)
             e.accept()
             return
         super().keyPressEvent(e)

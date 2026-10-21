@@ -276,6 +276,7 @@ SHORTCUTS = [
     (N_("Desfazer / Refazer"), N_("{mod}+Z / {mod}+{shift}+Z ou {mod}+Y")),
     (N_("Copiar / Recortar / Colar ramo"), "{mod}+C / {mod}+X / {mod}+V"),
     (N_("Duplicar tópico"), "{mod}+D"),
+    (N_("Negrito / Itálico / Tachado"), "{mod}+B / {mod}+I / {mod}+{shift}+X"),
     (N_("Selecionar todos os tópicos"), "{mod}+A"),
     (N_("Relação entre tópicos"), N_("{mod}+R, depois clique no destino")),
     (N_("Tópico flutuante"), N_("Duplo clique no fundo")),
