@@ -441,3 +441,43 @@ def apply_overrides(st: TopicStyle, o: dict, theme: Theme) -> TopicStyle:
 
 def underline_width(st: TopicStyle) -> float:
     return max(1.0, st.border_width or st.line_width)
+
+
+# ------------------------------------------------------------- copiar estilo (1.4.1)
+def _nearest(levels: dict, px: float) -> str:
+    return min(levels, key=lambda k: abs(levels[k] - px))
+
+
+def style_snapshot(st: TopicStyle) -> dict:
+    """Formatação "como aparece" de um tópico, no formato de Topic.style (para colar em outros).
+
+    Leva forma, preenchimento, borda, texto, largura fixa e ramo; não leva texto, marcadores ou nota."""
+    d: dict = {
+        "shape": st.shape,
+        "fill": st.fill or "",
+        "font_size": round(float(st.font_size), 1),
+        "font_weight": int(st.weight),
+        "italic": bool(st.italic),
+        "strike": bool(st.strike),
+        "text_case": st.text_case,
+        "text_color": st.text_color,
+        "line_pattern": st.line_pattern,
+        "line_end": st.line_end,
+        "line_level": _nearest(LINE_LEVEL_PX, st.line_width),
+        "line_color": st.line_color,
+    }
+    if st.border and st.border_width > 0:
+        d["border"] = st.border
+        d["border_level"] = _nearest(BORDER_LEVEL_PX, st.border_width)
+        d["border_style"] = st.border_style
+    else:
+        d["border"] = ""
+    if st.family:
+        d["font_family"] = st.family
+    if st.align in ALIGNS:
+        d["align"] = st.align
+    if st.branch_style in BRANCH_STYLES:
+        d["branch_style"] = st.branch_style
+    if st.fixed_width:
+        d["width"] = round(float(st.fixed_width))
+    return d

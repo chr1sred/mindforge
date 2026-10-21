@@ -23,6 +23,10 @@ rm -rf build dist
 pyinstaller mindforge.spec --noconfirm
 
 if [ "$(uname)" = "Darwin" ]; then
+  # o ícone dos documentos .mfmap precisa estar em Contents/Resources
+  if [ ! -f dist/MindForge.app/Contents/Resources/mfmap.icns ]; then
+    echo "AVISO: mfmap.icns não foi copiado para o app (ícone dos arquivos .mfmap)" >&2
+  fi
   echo "==> Gerando o instalador .dmg"
   hdiutil create -volname MindForge -srcfolder dist/MindForge.app -ov -format UDZO dist/MindForge.dmg
   echo "Pronto: dist/MindForge.app e dist/MindForge.dmg"

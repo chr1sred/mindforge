@@ -25,6 +25,7 @@ from mindforge.document import Document
 from mindforge.i18n import N_, ntr, tr
 from mindforge.model import ops
 from mindforge.model.topic import Topic
+from mindforge.themes import style_snapshot
 from mindforge.view.items import EditorItem, RelationItem
 from mindforge.view.painting import text_rect
 from mindforge.view.scene import MindScene
@@ -34,6 +35,16 @@ ZOOM_MIN, ZOOM_MAX = 0.1, 4.0
 RIGHT_DRAG_THRESHOLD = 4          # px que o mouse precisa andar para virar "arrasto"
 
 # Atalhos de janela que continuam funcionando mesmo durante a edição de texto
+STYLE_CLIPBOARD: dict = {}      # estilo copiado (compartilhado entre as janelas do app)
+
+
+def brush_cursor():
+    from PySide6.QtGui import QCursor
+    from mindforge.view.icons import icon
+    pm = icon("brush", "#1F2328", 24).pixmap(24, 24)
+    return QCursor(pm, 6, 22)
+
+
 _PASS_THROUGH = {Qt.Key.Key_S, Qt.Key.Key_N, Qt.Key.Key_O, Qt.Key.Key_E, Qt.Key.Key_W,
                  Qt.Key.Key_Q, Qt.Key.Key_F, Qt.Key.Key_P, Qt.Key.Key_Equal, Qt.Key.Key_Plus,
                  Qt.Key.Key_Minus, Qt.Key.Key_0, Qt.Key.Key_1}
@@ -45,6 +56,7 @@ class MindCanvas(QGraphicsView):
     current_changed = Signal()
     context_menu_requested = Signal(object, object)   # (tid | None, posição global)
     editing_changed = Signal(bool)
+    brush_changed = Signal(object)          # None | "once" | "sticky" (pincel de estilo)
 
     def __init__(self, doc: Document, parent=None):
         self.doc = doc
@@ -78,6 +90,7 @@ class MindCanvas(QGraphicsView):
         self._pending_merge: Optional[tuple[str, str]] = None
         self._merge_seq = 0
         self.relation_source: Optional[str] = None
+        self.brush_mode: Optional[str] = None       # pincel de estilo: None | "once" | "sticky"
         self._rel_line: Optional[QGraphicsLineItem] = None
         self._preview_timer = QTimer(self)
         self._preview_timer.setSingleShot(True)
@@ -96,6 +109,10 @@ class MindCanvas(QGraphicsView):
         sc.floating_moved.connect(self._on_floating_moved)
         sc.background_double_clicked.connect(self.add_floating)
         sc.relation_edit_requested.connect(self.edit_relation_label)
+        sc.relation_shape_changed.connect(self._relation_shape_changed)
+        sc.width_preview.connect(self._width_preview)
+        sc.width_commit.connect(self._width_commit)
+        self._width_orig: Optional[tuple] = None
         self._on_doc_changed()
         self.select_ids([doc.map.root.id], center=False)
         QTimer.singleShot(0, self.center_on_root)
@@ -522,6 +539,109 @@ class MindCanvas(QGraphicsView):
         self.viewport().unsetCursor()
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
 
+    # ------------------------------------------- copiar / colar estilo (1.4.1)
+    def copy_style(self) -> bool:
+        """Copia a formatação "como aparece" do tópico atual (fica disponível em todas as janelas)."""
+        self.commit_edit()
+        tid = self.current()
+        vis = self.mscene.visuals.get(tid) if tid else None
+        if vis is None:
+            self.status_message.emit(tr("Selecione um tópico para copiar o estilo."))
+            return False
+        STYLE_CLIPBOARD["style"] = style_snapshot(vis.style)
+        self.status_message.emit(tr("Estilo copiado. Use Colar estilo ou clique com o pincel em outro tópico."))
+        return True
+
+    def has_copied_style(self) -> bool:
+        return bool(STYLE_CLIPBOARD.get("style"))
+
+    def paste_style(self, ids: Optional[list] = None) -> None:
+        self.commit_edit()
+        style = STYLE_CLIPBOARD.get("style")
+        if not style:
+            self.status_message.emit(tr("Nenhum estilo copiado ainda."))
+            return
+        ids = [i for i in (ids if ids is not None else self.selected_ids()) if self.doc.map.find(i)]
+        if not ids:
+            return
+        self.doc.apply(N_("Colar estilo"), lambda m: ops.paste_style(m, ids, style), select=list(ids))
+
+    def reset_style(self) -> None:
+        self.commit_edit()
+        ids = [i for i in self.selected_ids() if self.doc.map.find(i)]
+        if ids:
+            self.doc.apply(N_("Repor estilo"), lambda m: ops.clear_style(m, ids), select=list(ids))
+
+    def start_brush(self, sticky: bool = False) -> None:
+        """Pincel: copia o estilo do tópico atual e aplica no próximo tópico clicado.
+        sticky (duplo clique no botão): aplica em vários até Esc ou clicar no botão de novo."""
+        if self.brush_mode is None and not self.copy_style():
+            return
+        self.brush_mode = "sticky" if sticky else "once"
+        self.viewport().setCursor(brush_cursor())
+        self.status_message.emit(tr("Clique nos tópicos para aplicar o estilo (Esc encerra).") if sticky
+                                 else tr("Clique num tópico para aplicar o estilo (Esc cancela)."))
+        self.brush_changed.emit(self.brush_mode)
+
+    def end_brush(self) -> None:
+        if self.brush_mode is None:
+            return
+        self.brush_mode = None
+        self.viewport().unsetCursor()
+        self.status_message.emit("")
+        self.brush_changed.emit(None)
+
+    # ------------------------------------------------- relações editáveis (1.4.1)
+    def _relation_shape_changed(self, rid: str, shape: dict) -> None:
+        self.doc.apply(N_("Ajustar relação"), lambda m: ops.set_relation_shape(m, rid, **shape))
+        self._reselect_relation(rid)
+
+    def _reselect_relation(self, rid: str) -> None:
+        ri = self.mscene.rel_items.get(rid)
+        if ri is not None:
+            self.mscene.clearSelection()
+            ri.setSelected(True)
+
+    def relation_action(self, rid: str, action: str, value=None) -> None:
+        labels = {"reverse": N_("Inverter direção"), "straighten": N_("Endireitar curva"),
+                  "arrows": N_("Pontas da relação")}
+        fns = {"reverse": lambda m: ops.reverse_relation(m, rid),
+               "straighten": lambda m: ops.reset_relation_shape(m, rid),
+               "arrows": lambda m: ops.set_relation_shape(m, rid, arrows=value)}
+        self.doc.apply(labels[action], fns[action])
+        self._reselect_relation(rid)
+
+    # ------------------------------------------------ redimensionar (1.4.1)
+    def _width_preview(self, tid: str, w: float) -> None:
+        t = self.doc.map.find(tid)
+        if t is None:
+            return
+        if self._width_orig is None or self._width_orig[0] != tid:
+            self._width_orig = (tid, t.style.get("width"))
+        t.style["width"] = round(w)          # prévia: muda só a cena; o desfazer é gravado ao soltar
+        self.mscene.sync()
+
+    def _width_commit(self, tid: str, w: float) -> None:
+        t = self.doc.map.find(tid)
+        orig = self._width_orig[1] if self._width_orig and self._width_orig[0] == tid else t.style.get("width") \
+            if t else None
+        self._width_orig = None
+        if t is None:
+            return
+        if orig is None:
+            t.style.pop("width", None)
+        else:
+            t.style["width"] = orig
+        if w < 0:
+            self.mscene.sync()
+            return
+        value = round(w) if w > 0 else None
+        if value == orig:
+            self.mscene.sync()
+            return
+        self.doc.apply(N_("Redimensionar tópico"), lambda m: ops.set_styles(m, [tid], {"width": value}),
+                       select=[tid])
+
     def edit_relation_label(self, rid: str) -> None:
         rel = next((r for r in self.doc.map.relations if r.id == rid), None)
         if rel is None:
@@ -588,6 +708,10 @@ class MindCanvas(QGraphicsView):
                 self._space_down = True
                 self._space_used = False
                 self.viewport().setCursor(Qt.CursorShape.OpenHandCursor)
+            e.accept()
+            return
+        if key == Qt.Key.Key_Escape and self.brush_mode:
+            self.end_brush()
             e.accept()
             return
         if key == Qt.Key.Key_Escape:
@@ -663,6 +787,16 @@ class MindCanvas(QGraphicsView):
             self.commit_edit()
             self._space_used = True
             self._start_pan(e.position())
+            e.accept()
+            return
+        if self.brush_mode and e.button() == Qt.MouseButton.LeftButton:
+            target = self.mscene.topic_at(self.mapToScene(e.position().toPoint()))
+            if target is not None:
+                self.paste_style([target.tid])
+                if self.brush_mode == "once":
+                    self.end_brush()
+            else:
+                self.end_brush()        # clique no fundo encerra o pincel
             e.accept()
             return
         if self.relation_source and e.button() == Qt.MouseButton.LeftButton:

@@ -45,6 +45,7 @@ class TopicItem(QGraphicsItem):
         self.setZValue(Z_TOPIC)
         self.linger_until = 0.0              # ⊖ continua visível um instante depois que o mouse sai
         self.handle = CollapseHandle(self)
+        self._resize: Optional[dict] = None  # arraste da borda (redimensionar largura, 1.4.1)
 
     def mind_scene(self) -> "MindScene":
         return self.scene()  # type: ignore[return-value]
@@ -156,13 +157,91 @@ class TopicItem(QGraphicsItem):
         self.update_handle()
         self.update()
 
+    # ------------------------------------------------ redimensionar (1.4.1)
+    def edge_at(self, pos: QPointF) -> Optional[str]:
+        """"left"/"right" quando o ponteiro está na borda lateral da caixa (zona de redimensionar)."""
+        sc = self.scene()
+        if self.vis is None or self.editing or sc is None:
+            return None
+        for v in sc.views():
+            if getattr(v, "brush_mode", None) or getattr(v, "relation_source", None):
+                return None
+        scale = getattr(sc, "view_scale", 1.0) or 1.0
+        zone = min(max(RESIZE_ZONE_PX / scale, 4.0), self.vis.w / 4)
+        if not (0 <= pos.y() <= self.vis.h):
+            return None
+        if 0 <= pos.x() <= zone:
+            return "left"
+        if self.vis.w - zone <= pos.x() <= self.vis.w:
+            return "right"
+        return None
+
+    def min_width(self) -> float:
+        """A palavra mais longa precisa caber (nenhuma palavra cortada)."""
+        vis = self.vis
+        fm = QFontMetricsF(vis.font)
+        longest = max((fm.horizontalAdvance(w) for w in " ".join(vis.lines).split()), default=10.0)
+        return max(40.0, (vis.w - vis.text_w) + longest + 2)
+
+    def hoverMoveEvent(self, e) -> None:
+        if self.edge_at(e.pos()):
+            self.setCursor(Qt.CursorShape.SizeHorCursor)
+        else:
+            self.unsetCursor()
+        super().hoverMoveEvent(e)
+
+    def mousePressEvent(self, e) -> None:
+        side = self.edge_at(e.pos()) if e.button() == Qt.MouseButton.LeftButton else None
+        if side:
+            sc = self.mind_scene()
+            if not self.isSelected():
+                sc.clearSelection()
+                self.setSelected(True)
+            self._resize = {"side": side, "x0": e.scenePos().x(), "w0": self.vis.w,
+                            "min": self.min_width(), "w": self.vis.w}
+            e.accept()
+            return
+        super().mousePressEvent(e)
+
+    def mouseMoveEvent(self, e) -> None:
+        r = self._resize
+        if r is not None:
+            dx = e.scenePos().x() - r["x0"]
+            w = r["w0"] + (dx if r["side"] == "right" else -dx)
+            r["w"] = max(r["min"], min(RESIZE_MAX_W, w))
+            self.mind_scene().width_preview.emit(self.tid, float(r["w"]))
+            e.accept()
+            return
+        super().mouseMoveEvent(e)
+
+    def mouseReleaseEvent(self, e) -> None:
+        r = self._resize
+        if r is not None:
+            self._resize = None
+            if abs(r["w"] - r["w0"]) >= 1:
+                self.mind_scene().width_commit.emit(self.tid, float(r["w"]))
+            else:
+                self.mind_scene().width_commit.emit(self.tid, -1.0)     # só clicou: nada muda
+            e.accept()
+            return
+        super().mouseReleaseEvent(e)
+
     def mouseDoubleClickEvent(self, e) -> None:
+        if e.button() == Qt.MouseButton.LeftButton and self.edge_at(e.pos()) and self.vis.style.fixed_width:
+            # duplo clique na borda de um tópico com largura fixa: volta à automática
+            # (sem largura fixa, o duplo clique continua editando o texto)
+            self.mind_scene().width_commit.emit(self.tid, 0.0)
+            e.accept()
+            return
         if e.button() == Qt.MouseButton.LeftButton:
             self.mind_scene().edit_requested.emit(self.tid)
             e.accept()
             return
         super().mouseDoubleClickEvent(e)
 
+
+RESIZE_ZONE_PX = 6.0          # largura da zona de redimensionar, em pixels de tela
+RESIZE_MAX_W = 2000.0
 
 HANDLE_LINGER_S = 0.25        # tempo que o ⊖ espera antes de sumir (caminho do tópico até ele)
 HANDLE_MIN_SCREEN_R = 8.0     # raio mínimo da área de clique, em pixels de tela (≈ 16 px de diâmetro)
@@ -398,32 +477,96 @@ def _clip_to_rect(center: QPointF, toward: QPointF, rect: QRectF) -> QPointF:
     return QPointF(center.x() + dx * t, center.y() + dy * t)
 
 
+def rect_point(rect: QRectF, t: float, pad: float = 4.0) -> QPointF:
+    """Ponto na borda do retângulo (com folga `pad`), t de 0 a 1 em volta: topo → direita → base → esquerda."""
+    r = rect.adjusted(-pad, -pad, pad, pad)
+    w, h = r.width(), r.height()
+    per = 2 * (w + h) or 1.0
+    s = (t % 1.0) * per
+    if s <= w:
+        return QPointF(r.left() + s, r.top())
+    s -= w
+    if s <= h:
+        return QPointF(r.right(), r.top() + s)
+    s -= h
+    if s <= w:
+        return QPointF(r.right() - s, r.bottom())
+    s -= w
+    return QPointF(r.left(), r.bottom() - s)
+
+
+def rect_param(rect: QRectF, pt: QPointF, pad: float = 4.0) -> float:
+    """Inverso de rect_point: parâmetro (0..1) do ponto da borda mais próximo de `pt`."""
+    r = rect.adjusted(-pad, -pad, pad, pad)
+    w, h = r.width(), r.height()
+    per = 2 * (w + h) or 1.0
+    x = min(max(pt.x(), r.left()), r.right())
+    y = min(max(pt.y(), r.top()), r.bottom())
+    cands = [
+        (abs(pt.y() - r.top()) + (0 if r.left() <= pt.x() <= r.right() else abs(pt.x() - x)), x - r.left()),
+        (abs(pt.x() - r.right()) + (0 if r.top() <= pt.y() <= r.bottom() else abs(pt.y() - y)), w + (y - r.top())),
+        (abs(pt.y() - r.bottom()) + (0 if r.left() <= pt.x() <= r.right() else abs(pt.x() - x)),
+         w + h + (r.right() - x)),
+        (abs(pt.x() - r.left()) + (0 if r.top() <= pt.y() <= r.bottom() else abs(pt.y() - y)),
+         2 * w + h + (r.bottom() - y)),
+    ]
+    return (min(cands)[1] / per) % 1.0
+
+
+REL_HANDLE_PX = 5.0       # tamanho dos controles da relação, em pixels de tela
+
+
 class RelationItem(QGraphicsPathItem):
+    """Relação (linha tracejada com seta) entre dois tópicos.
+
+    Selecionada, mostra os controles (padrão XMind): dois quadrados que mudam a curvatura e dois
+    círculos nas pontas que deslizam o ponto de encaixe pela borda do tópico (1.4.1)."""
+
     def __init__(self, rid: str):
         super().__init__()
         self.rid = rid
         self.label = ""
         self.color = QColor("#7C8594")
+        self.arrows = "end"
         self._label_pos = QPointF()
         self._arrow = QPainterPath()
+        self._a = QRectF()
+        self._b = QRectF()
+        self._shape: dict = {}
+        self._pts: dict = {}              # p0, c1, c2, p1 (geometria atual)
+        self._drag: Optional[dict] = None
         self.setZValue(Z_RELATION)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setAcceptHoverEvents(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
+    # -------------------------------------------------------------- geometria
     @staticmethod
-    def _curve(a: QRectF, b: QRectF, side: float) -> tuple[QPainterPath, QPointF]:
+    def _auto_controls(a: QRectF, b: QRectF, side: float) -> tuple[QPointF, QPointF]:
         ca, cb = a.center(), b.center()
         dist = math.hypot(cb.x() - ca.x(), cb.y() - ca.y()) or 1.0
         nx, ny = -(cb.y() - ca.y()) / dist * side, (cb.x() - ca.x()) / dist * side
         bend = min(120.0, dist * 0.3)
         c1 = QPointF(ca.x() + (cb.x() - ca.x()) * 0.25 + nx * bend, ca.y() + (cb.y() - ca.y()) * 0.25 + ny * bend)
         c2 = QPointF(ca.x() + (cb.x() - ca.x()) * 0.75 + nx * bend, ca.y() + (cb.y() - ca.y()) * 0.75 + ny * bend)
-        p0 = _clip_to_rect(ca, c1, a)
-        p1 = _clip_to_rect(cb, c2, b)
+        return c1, c2
+
+    def _build(self, a: QRectF, b: QRectF, shape: dict, side: float) -> dict:
+        auto1, auto2 = self._auto_controls(a, b, side)
+        ga, gb = shape.get("anchor_a"), shape.get("anchor_b")
+        p0 = rect_point(a, ga) if ga is not None else None
+        p1 = rect_point(b, gb) if gb is not None else None
+        c1o, c2o = shape.get("c1"), shape.get("c2")
+        # encaixe automático: onde a reta centro→controle cruza a borda
+        if p0 is None:
+            p0 = _clip_to_rect(a.center(), auto1 if c1o is None else a.center() + QPointF(*c1o), a)
+        if p1 is None:
+            p1 = _clip_to_rect(b.center(), auto2 if c2o is None else b.center() + QPointF(*c2o), b)
+        c1 = p0 + QPointF(*c1o) if c1o is not None else auto1
+        c2 = p1 + QPointF(*c2o) if c2o is not None else auto2
         path = QPainterPath(p0)
         path.cubicTo(c1, c2, p1)
-        return path, c2
+        return {"p0": p0, "c1": c1, "c2": c2, "p1": p1, "path": path}
 
     @staticmethod
     def _crossings(path: QPainterPath, obstacles: list) -> int:
@@ -435,43 +578,58 @@ class RelationItem(QGraphicsPathItem):
         return n
 
     def set_geometry(self, a: QRectF, b: QRectF, label: str, color: str,
-                     obstacles: Optional[list] = None) -> None:
-        """obstacles: caixas (em coordenadas da cena) que a curva e o rótulo devem evitar (1.4)."""
+                     obstacles: Optional[list] = None, shape: Optional[dict] = None,
+                     arrows: str = "end") -> None:
+        """obstacles: caixas (cena) que a curva automática e o rótulo evitam. shape: forma personalizada."""
         self.prepareGeometryChange()
         self.label = label
         self.color = QColor(color)
-        label_obstacles = list(obstacles or [])     # o rótulo evita tudo, inclusive as pontas
-        obstacles = [r for r in label_obstacles if not r.intersects(a) and not r.intersects(b)]
-        path, c2 = self._curve(a, b, 1.0)
-        if obstacles and self._crossings(path, obstacles):
-            alt, alt_c2 = self._curve(a, b, -1.0)       # curva para o outro lado, se cruzar menos tópicos
-            if self._crossings(alt, obstacles) < self._crossings(path, obstacles):
-                path, c2 = alt, alt_c2
-        p1 = path.pointAtPercent(1.0)
-        self.setPath(path)
-        ang = math.atan2(p1.y() - c2.y(), p1.x() - c2.x())
-        arrow = QPainterPath()
-        arrow.moveTo(p1)
-        for sgn in (1, -1):
-            a2 = ang + math.pi - sgn * math.radians(25)
-            arrow.lineTo(QPointF(p1.x() + 11 * math.cos(a2), p1.y() + 11 * math.sin(a2)))
-        arrow.closeSubpath()
-        self._arrow = arrow
-        self._label_pos = path.pointAtPercent(0.5)
-        obstacles = label_obstacles
-        if self.label and obstacles:
-            # o rótulo desliza ao longo da curva até um ponto livre de tópicos
+        self.arrows = arrows
+        self._a, self._b = QRectF(a), QRectF(b)
+        self._shape = dict(shape or {})
+        label_obstacles = list(obstacles or [])
+        custom = any(self._shape.get(k) is not None for k in ("c1", "c2"))
+        g = self._build(a, b, self._shape, 1.0)
+        if not custom:
+            free = [r for r in label_obstacles if not r.intersects(a) and not r.intersects(b)]
+            if free and self._crossings(g["path"], free):
+                alt = self._build(a, b, self._shape, -1.0)      # curva para o outro lado, se cruzar menos
+                if self._crossings(alt["path"], free) < self._crossings(g["path"], free):
+                    g = alt
+        self._apply(g)
+        self._label_pos = g["path"].pointAtPercent(0.5)
+        if self.label and label_obstacles:
             best, best_hit = self._label_pos, None
             for t in (0.5, 0.42, 0.58, 0.34, 0.66, 0.26, 0.74, 0.18, 0.82):
-                self._label_pos = path.pointAtPercent(t)
+                self._label_pos = g["path"].pointAtPercent(t)
                 r = self._label_rect().adjusted(-3, -3, 3, 3)
-                hit = sum((r.intersected(o).width() * r.intersected(o).height()) for o in obstacles
+                hit = sum((r.intersected(o).width() * r.intersected(o).height()) for o in label_obstacles
                           if r.intersects(o))
                 if best_hit is None or hit < best_hit:
                     best, best_hit = QPointF(self._label_pos), hit
                 if hit == 0:
                     break
             self._label_pos = best
+
+    def _apply(self, g: dict) -> None:
+        self.prepareGeometryChange()
+        self._pts = g
+        self.setPath(g["path"])
+        arrow = QPainterPath()
+        if self.arrows in ("end", "both"):
+            self._add_arrow(arrow, g["p1"], g["c2"])
+        if self.arrows == "both":
+            self._add_arrow(arrow, g["p0"], g["c1"])
+        self._arrow = arrow
+
+    @staticmethod
+    def _add_arrow(path: QPainterPath, tip: QPointF, ctrl: QPointF) -> None:
+        ang = math.atan2(tip.y() - ctrl.y(), tip.x() - ctrl.x())
+        path.moveTo(tip)
+        for sgn in (1, -1):
+            a2 = ang + math.pi - sgn * math.radians(25)
+            path.lineTo(QPointF(tip.x() + 11 * math.cos(a2), tip.y() + 11 * math.sin(a2)))
+        path.closeSubpath()
 
     def label_scene_rect(self) -> QRectF:
         return self._label_rect()
@@ -490,8 +648,40 @@ class RelationItem(QGraphicsPathItem):
         h = fm.height() + 6
         return QRectF(self._label_pos.x() - w / 2, self._label_pos.y() - h / 2, w, h)
 
+    # -------------------------------------------------------------- controles
+    def _handle_r(self) -> float:
+        sc = self.scene()
+        scale = getattr(sc, "view_scale", 1.0) if sc is not None else 1.0
+        return max(4.0, REL_HANDLE_PX / (scale or 1.0))
+
+    def _editing(self) -> bool:
+        sc = self.scene()
+        return self.isSelected() and not getattr(sc, "export_mode", False) and bool(self._pts)
+
+    def handle_at(self, pos: QPointF) -> Optional[str]:
+        if not self._editing():
+            return None
+        r = self._handle_r() + 3
+        best, best_d = None, None
+        for key in ("c1", "c2", "p0", "p1"):     # o mais próximo vence (controles podem se sobrepor)
+            pt = self._pts[key]
+            if abs(pos.x() - pt.x()) <= r and abs(pos.y() - pt.y()) <= r:
+                dist = math.hypot(pos.x() - pt.x(), pos.y() - pt.y())
+                if best_d is None or dist < best_d:
+                    best, best_d = key, dist
+        return best
+
+    def _handles_rect(self) -> QRectF:
+        if not self._pts:
+            return QRectF()
+        r = self._handle_r() + 4
+        xs = [self._pts[k].x() for k in ("p0", "c1", "c2", "p1")]
+        ys = [self._pts[k].y() for k in ("p0", "c1", "c2", "p1")]
+        return QRectF(min(xs) - r, min(ys) - r, max(xs) - min(xs) + 2 * r, max(ys) - min(ys) + 2 * r)
+
     def boundingRect(self) -> QRectF:
-        return self.path().boundingRect().adjusted(-14, -14, 14, 14).united(self._label_rect())
+        br = self.path().boundingRect().adjusted(-14, -14, 14, 14).united(self._label_rect())
+        return br.united(self._handles_rect())       # inclui os controles (aparecem ao selecionar)
 
     def shape(self) -> QPainterPath:
         s = QPainterPathStroker()
@@ -500,18 +690,29 @@ class RelationItem(QGraphicsPathItem):
         r = self._label_rect()
         if not r.isNull():
             p.addRect(r)
+        if self._editing():
+            hr = self._handle_r() + 3
+            for key in ("c1", "c2", "p0", "p1"):
+                pt = self._pts[key]
+                p.addRect(QRectF(pt.x() - hr, pt.y() - hr, 2 * hr, 2 * hr))
         return p
 
     def visual_rect(self) -> QRectF:
         return self.path().boundingRect().united(self._arrow.boundingRect()).united(self._label_rect())
 
+    def itemChange(self, change, value):
+        if change == QGraphicsItem.GraphicsItemChange.ItemSelectedChange:
+            self.prepareGeometryChange()      # a área clicável muda (controles)
+        return super().itemChange(change, value)
+
+    # ----------------------------------------------------------------- pintura
     def paint(self, p: QPainter, option, widget=None) -> None:
         sc = self.scene()
         export = getattr(sc, "export_mode", False)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        color = QColor(getattr(sc, "selection_color", "#2F80ED")) if (self.isSelected() and not export) else self.color
-        pen = QPen(color, 2.0 if self.isSelected() and not export else 1.6, Qt.PenStyle.DashLine,
-                   Qt.PenCapStyle.RoundCap)
+        sel = self.isSelected() and not export
+        color = QColor(getattr(sc, "selection_color", "#2F80ED")) if sel else self.color
+        pen = QPen(color, 2.0 if sel else 1.6, Qt.PenStyle.DashLine, Qt.PenCapStyle.RoundCap)
         pen.setDashPattern([5, 4])
         p.setPen(pen)
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -535,8 +736,90 @@ class RelationItem(QGraphicsPathItem):
                 p.setFont(f)
                 p.setPen(color)
                 p.drawText(r, int(Qt.AlignmentFlag.AlignCenter), self.label)
+        if sel and self._pts:
+            self._paint_handles(p, color, QColor(getattr(sc, "background_color", "#FFFFFF")))
+
+    def _paint_handles(self, p: QPainter, color: QColor, bg: QColor) -> None:
+        g = self._pts
+        hr = self._handle_r()
+        thin = QPen(color, 1.0)
+        thin.setCosmetic(True)
+        p.setPen(thin)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawLine(g["p0"], g["c1"])
+        p.drawLine(g["p1"], g["c2"])
+        edge = QPen(color, 1.6)
+        edge.setCosmetic(True)
+        p.setPen(edge)
+        p.setBrush(bg)
+        for key in ("c1", "c2"):                       # quadrados: curvatura
+            c = g[key]
+            p.drawRect(QRectF(c.x() - hr, c.y() - hr, 2 * hr, 2 * hr))
+        for key in ("p0", "p1"):                       # círculos: ponto de encaixe
+            p.drawEllipse(g[key], hr * 0.9, hr * 0.9)
+
+    # ------------------------------------------------------------------ eventos
+    def hoverMoveEvent(self, e) -> None:
+        h = self.handle_at(e.pos())
+        if h in ("c1", "c2"):
+            self.setCursor(Qt.CursorShape.SizeAllCursor)
+        elif h in ("p0", "p1"):
+            self.setCursor(Qt.CursorShape.CrossCursor)
+        else:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+        super().hoverMoveEvent(e)
+
+    def mousePressEvent(self, e) -> None:
+        h = self.handle_at(e.pos()) if e.button() == Qt.MouseButton.LeftButton else None
+        if h:
+            self._drag = {"key": h, "shape": dict(self._shape), "moved": False}
+            e.accept()
+            return
+        super().mousePressEvent(e)
+
+    def mouseMoveEvent(self, e) -> None:
+        d = self._drag
+        if d is None:
+            super().mouseMoveEvent(e)
+            return
+        pos = e.pos()
+        sh = d["shape"]
+        g = self._pts
+        if d["key"] == "c1":
+            sh["c1"] = (pos.x() - g["p0"].x(), pos.y() - g["p0"].y())
+            sh.setdefault("c2", (g["c2"].x() - g["p1"].x(), g["c2"].y() - g["p1"].y()))
+        elif d["key"] == "c2":
+            sh["c2"] = (pos.x() - g["p1"].x(), pos.y() - g["p1"].y())
+            sh.setdefault("c1", (g["c1"].x() - g["p0"].x(), g["c1"].y() - g["p0"].y()))
+        elif d["key"] == "p0":
+            sh["anchor_a"] = rect_param(self._a, pos)
+        else:
+            sh["anchor_b"] = rect_param(self._b, pos)
+        # ao mexer num encaixe, mantém a curvatura atual (controles fixos em relação às pontas)
+        if d["key"] in ("p0", "p1"):
+            sh.setdefault("c1", (g["c1"].x() - g["p0"].x(), g["c1"].y() - g["p0"].y()))
+            sh.setdefault("c2", (g["c2"].x() - g["p1"].x(), g["c2"].y() - g["p1"].y()))
+        d["moved"] = True
+        self._apply(self._build(self._a, self._b, sh, 1.0))
+        self._label_pos = self.path().pointAtPercent(0.5)
+        self.update()
+        e.accept()
+
+    def mouseReleaseEvent(self, e) -> None:
+        d = self._drag
+        if d is None:
+            super().mouseReleaseEvent(e)
+            return
+        self._drag = None
+        e.accept()
+        if d["moved"]:
+            keys = ("anchor_a", "anchor_b", "c1", "c2")
+            self.scene().relation_shape_changed.emit(self.rid, {k: d["shape"].get(k) for k in keys})
 
     def mouseDoubleClickEvent(self, e) -> None:
+        if self.handle_at(e.pos()):
+            e.accept()
+            return
         self.scene().relation_edit_requested.emit(self.rid)
         e.accept()
 

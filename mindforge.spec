@@ -29,11 +29,18 @@ EXCLUDES = [
     "PySide6.QtSpatialAudio", "PySide6.QtTextToSpeech", "PySide6.QtHttpServer",
 ]
 
+# Ícone dos documentos .mfmap (1.4.1): PNG/ICO usados no registro do Windows e do Linux;
+# no macOS o .icns e os nomes localizados vão para Contents/Resources do .app.
+DATAS = [("assets/icon.png", "assets"), ("assets/fonts", "assets/fonts"), ("assets/doc", "assets/doc")]
+if IS_MAC:
+    DATAS += [("assets/doc/mfmap.icns", "."),
+              ("assets/macos/en.lproj", "en.lproj"), ("assets/macos/pt-BR.lproj", "pt-BR.lproj")]
+
 a = Analysis(
     ["run_mindforge.py"],
     pathex=["."],
     binaries=[],
-    datas=[("assets/icon.png", "assets"), ("assets/fonts", "assets/fonts")],
+    datas=DATAS,
     hiddenimports=["PySide6.QtSvg"],
     hookspath=[],
     runtime_hooks=[],
@@ -80,7 +87,8 @@ if IS_MAC:
             "CFBundleAllowMixedLocalizations": True,
             # Associa arquivos .mfmap ao app (duplo clique no Finder abre no MindForge)
             "CFBundleDocumentTypes": [{
-                "CFBundleTypeName": "Mapa MindForge",
+                "CFBundleTypeName": "Mapa do MindForge",
+                "CFBundleTypeIconFile": "mfmap.icns",
                 "CFBundleTypeRole": "Editor",
                 "LSHandlerRank": "Owner",
                 "LSItemContentTypes": ["br.com.ccastro.mindforge.mfmap"],
@@ -88,8 +96,10 @@ if IS_MAC:
             }],
             "UTExportedTypeDeclarations": [{
                 "UTTypeIdentifier": "br.com.ccastro.mindforge.mfmap",
-                "UTTypeDescription": "Mapa MindForge",
-                "UTTypeConformsTo": ["public.json", "public.data"],
+                "UTTypeDescription": "Mapa do MindForge",
+                "UTTypeIconFile": "mfmap.icns",
+                # documento próprio (não um tipo de JSON): o Finder mostra o ícone, não o texto cru
+                "UTTypeConformsTo": ["public.data", "public.content"],
                 "UTTypeTagSpecification": {"public.filename-extension": ["mfmap"]},
             }],
         },

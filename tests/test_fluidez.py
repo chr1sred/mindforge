@@ -16,6 +16,44 @@ from mindforge.layouts import LAYOUTS
 from mindforge.templates import TEMPLATES
 
 
+def _edge_drag(c, r):
+    from PySide6.QtCore import QPoint, QPointF
+    items = list(c.mscene.topic_items.values())
+    if not items:
+        return
+    it = r.choice(items)
+    vp = c.viewport()
+    p = c.mapFromScene(it.mapToScene(QPointF(it.vis.w - 1, it.vis.h / 2)))
+    QTest.mousePress(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, p)
+    QTest.mouseMove(vp, p + QPoint(r.randint(-150, 150), 0))
+    QTest.mouseRelease(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, p + QPoint(r.randint(-150, 150), 0))
+
+
+def _rel_drag(c, r):
+    from PySide6.QtCore import QPoint
+    rels = list(c.mscene.rel_items.values())
+    if not rels:
+        return
+    ri = r.choice(rels)
+    c.mscene.clearSelection()
+    ri.setSelected(True)
+    if not ri._pts:
+        return
+    key = r.choice(["c1", "c2", "p0", "p1"])
+    vp = c.viewport()
+    p = c.mapFromScene(ri.mapToScene(ri._pts[key]))
+    QTest.mousePress(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, p)
+    QTest.mouseMove(vp, p + QPoint(r.randint(-80, 80), r.randint(-80, 80)))
+    QTest.mouseRelease(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, p + QPoint(r.randint(-80, 80), 0))
+
+
+def _rel_action(c, r):
+    rels = c.doc.map.relations
+    if rels:
+        rel = r.choice(rels)
+        c.relation_action(rel.id, r.choice(["reverse", "straighten", "arrows"]), r.choice(["end", "both", "none"]))
+
+
 def test_acoes_aleatorias_nao_quebram(qapp):
     app = qapp
     errors = []
@@ -47,6 +85,14 @@ def test_acoes_aleatorias_nao_quebram(qapp):
              lambda: c.set_zoom(r.choice([0.3,0.7,1,2])),
              lambda: QTest.mouseClick(c.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, c.mapFromScene(r.choice(list(c.mscene.topic_items.values())).sceneBoundingRect().center())),
              lambda: app._apply_language(r.choice(["pt_BR","en_US"]), persist=False),
+             # 1.4.1: estilo, pincel, redimensionar, relações
+             lambda: QTest.keyClick(c,K.Key_C,M.ControlModifier|M.AltModifier),
+             lambda: QTest.keyClick(c,K.Key_V,M.ControlModifier|M.AltModifier),
+             lambda: QTest.keyClick(c,K.Key_R,M.ControlModifier|M.AltModifier),
+             lambda: w._brush_clicked(),
+             lambda: _edge_drag(c, r),
+             lambda: _rel_drag(c, r),
+             lambda: _rel_action(c, r),
             ]
             for step in range(150):
                 try:
@@ -60,7 +106,7 @@ def test_acoes_aleatorias_nao_quebram(qapp):
                 if set(c.mscene.topic_items)!=vis_ids and c.editor is None:
                     errors.append(f"seed {seed} step {step}: itens != tópicos visíveis")
                     break
-            c.cancel_edit(); w.doc.mark_saved(); w.close(); QTest.qWait(5)
+            c.end_brush(); c.cancel_edit(); w.doc.mark_saved(); w.close(); QTest.qWait(5)
             app._apply_language("pt_BR", persist=False)
     finally:
         sys.excepthook = old_hook

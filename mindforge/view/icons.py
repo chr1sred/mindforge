@@ -128,6 +128,16 @@ def _note(p: QPainter, c: QColor) -> None:
         p.drawLine(QPointF(8.5, y), QPointF(15.5, y))
 
 
+def _brush(p: QPainter, c: QColor) -> None:
+    """Pincel de estilo (copiar/colar formatação)."""
+    p.drawRoundedRect(QRectF(4, 3, 16, 7), 2, 2)            # cabeça do rolo
+    p.drawLine(QPointF(20, 6.5), QPointF(21.5, 6.5))
+    p.drawLine(QPointF(21.5, 6.5), QPointF(21.5, 12.5))
+    p.drawLine(QPointF(21.5, 12.5), QPointF(12, 12.5))
+    p.drawLine(QPointF(12, 12.5), QPointF(12, 14.5))
+    p.drawRoundedRect(QRectF(10.5, 14.5, 3, 7), 1.2, 1.2)    # cabo
+
+
 def _chevron(p: QPainter, c: QColor) -> None:
     p.drawLine(QPointF(7, 10), QPointF(12, 15))
     p.drawLine(QPointF(12, 15), QPointF(17, 10))
@@ -197,7 +207,7 @@ _DRAW: dict[str, Callable[[QPainter, QColor], None]] = {
     "panel": _panel, "fullscreen": _fullscreen, "zoom_in": _zoom_in, "zoom_out": _zoom_out,
     "fit": _fit, "marker": _marker, "note": _note, "chevron": _chevron, "new": _new,
     "open": _open, "save": _save, "chevron_right": _chevron_right,
-    "align_left": _align_left, "align_center": _align_center, "align_right": _align_right,
+    "brush": _brush, "align_left": _align_left, "align_center": _align_center, "align_right": _align_right,
 }
 
 

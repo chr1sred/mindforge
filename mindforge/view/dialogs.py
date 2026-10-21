@@ -258,6 +258,7 @@ def ask_export_path(parent, fmt: str, base_name: str) -> Optional[str]:
 
 MOD = "⌘" if sys.platform == "darwin" else "Ctrl"
 SHIFT = "⇧" if sys.platform == "darwin" else "Shift"
+ALT = "⌥" if sys.platform == "darwin" else "Alt"
 
 # (ação, tecla). Teclas usam {mod}/{shift}; textos entre as teclas também são traduzidos.
 SHORTCUTS = [
@@ -277,6 +278,7 @@ SHORTCUTS = [
     (N_("Copiar / Recortar / Colar ramo"), "{mod}+C / {mod}+X / {mod}+V"),
     (N_("Duplicar tópico"), "{mod}+D"),
     (N_("Negrito / Itálico / Tachado"), "{mod}+B / {mod}+I / {mod}+{shift}+X"),
+    (N_("Copiar / Colar / Repor estilo"), "{mod}+{alt}+C / {mod}+{alt}+V / {mod}+{alt}+R"),
     (N_("Selecionar todos os tópicos"), "{mod}+A"),
     (N_("Relação entre tópicos"), N_("{mod}+R, depois clique no destino")),
     (N_("Tópico flutuante"), N_("Duplo clique no fundo")),
@@ -291,7 +293,7 @@ SHORTCUTS = [
 
 def shortcut_rows() -> list[tuple[str, str]]:
     """Linhas da tabela de atalhos já traduzidas e com as teclas do sistema."""
-    return [(tr(a), tr(k).format(mod=MOD, shift=SHIFT)) for a, k in SHORTCUTS]
+    return [(tr(a), tr(k).format(mod=MOD, shift=SHIFT, alt=ALT)) for a, k in SHORTCUTS]
 
 
 class ShortcutsDialog(QDialog):

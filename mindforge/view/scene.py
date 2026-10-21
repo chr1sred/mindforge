@@ -40,6 +40,9 @@ class MindScene(QGraphicsScene):
     background_double_clicked = Signal(QPointF)
     relation_edit_requested = Signal(str)
     synced = Signal()
+    relation_shape_changed = Signal(str, dict)  # arrastou um controle da relação
+    width_preview = Signal(str, float)          # redimensionando (ao vivo)
+    width_commit = Signal(str, float)           # soltou: >0 largura; 0 automática; <0 cancelar
 
     def __init__(self, doc: Document, parent=None):
         super().__init__(parent)
@@ -241,7 +244,9 @@ class MindScene(QGraphicsScene):
                 self.rel_items[r.id] = ri
             ra = a.mapRectToScene(a.box_rect())
             rb = b.mapRectToScene(b.box_rect())
-            ri.set_geometry(ra, rb, r.label, color, obstacles)
+            ri.setVisible(True)          # escondida durante o arraste de tópicos: volta sempre
+            shape = {"anchor_a": r.anchor_a, "anchor_b": r.anchor_b, "c1": r.c1, "c2": r.c2}
+            ri.set_geometry(ra, rb, r.label, color, obstacles, shape, r.arrows)
             if r.label:     # rótulos seguintes também evitam este
                 obstacles.append(ri.label_scene_rect())
         for rid in list(self.rel_items):
@@ -359,7 +364,8 @@ class MindScene(QGraphicsScene):
         if e.button() != Qt.MouseButton.LeftButton:
             return
         grabbed = self.mouseGrabberItem()
-        if isinstance(grabbed, TopicItem) and not grabbed.is_root and grabbed.isSelected():
+        if isinstance(grabbed, TopicItem) and not grabbed.is_root and grabbed.isSelected() \
+                and grabbed._resize is None:
             m = self.doc.map
             from mindforge.model import ops
             tops = [t for t in ops.top_level_selection(m, self.selected_topic_ids()) if t is not m.root]

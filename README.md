@@ -47,7 +47,15 @@ pyinstaller mindforge.spec --noconfirm
 **Observações:**
 
 - **Gere o instalador em cada sistema.** O PyInstaller não faz build cruzado: o `.exe` precisa ser gerado no Windows, e o `.app` no Mac.
-- **Arquivos `.mfmap` abrem com duplo clique.** No macOS, o `.app` já registra a extensão `.mfmap`, então o arquivo abre direto no MindForge pelo Finder.
+- **Arquivos `.mfmap` têm ícone próprio e abrem com duplo clique.** O ícone (folha com um mini mapa mental) aparece nos três sistemas, e o Finder deixa de mostrar o arquivo como texto:
+
+  | Sistema | Como é registrado |
+  |---|---|
+  | macOS | Pelo próprio `.app` (Info.plist), com o nome "Mapa do MindForge" / "MindForge Map" |
+  | Windows | Automaticamente na primeira abertura do app, só para o usuário atual (sem pedir administrador) |
+  | Linux | Automaticamente na primeira abertura: tipo de arquivo, ícones e atalho do app em `~/.local/share` |
+
+  Se o Mac continuar mostrando o ícone antigo, substitua o app em **Aplicativos**, abra-o uma vez e rode `killall Finder`. Para não mexer no registro do Windows/Linux, defina `MINDFORGE_SEM_INTEGRACAO=1`. O ícone é gerado por `python tools/make_doc_icons.py` (já vem pronto em `assets/doc/`).
 - **Distribuição para outros Macs.** Sem assinatura da Apple, o macOS mostra um aviso na primeira abertura; basta clicar com o botão direito → *Abrir*. Para distribuir sem esse aviso é preciso assinar e notarizar com uma conta Apple Developer.
 - **Mac Intel e Apple Silicon.** O pacote é gerado para a arquitetura do Mac onde foi feito o build. Para atender os dois tipos de Mac, gere em cada arquitetura ou use um Python *universal2*.
 
@@ -71,6 +79,7 @@ No macOS, `Ctrl` = `⌘`. A lista completa também está em **Ajuda → Atalhos 
 | Desfazer / refazer | `Ctrl+Z` / `Ctrl+Shift+Z` ou `Ctrl+Y` |
 | Copiar / recortar / colar / duplicar | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` / `Ctrl+D` |
 | Negrito / itálico / tachado | `Ctrl+B` / `Ctrl+I` / `Ctrl+Shift+X` (também durante a edição) |
+| Copiar / colar / repor estilo | `Ctrl+Alt+C` / `Ctrl+Alt+V` / `Ctrl+Alt+R` (no Mac, `⌘⌥C` / `⌘⌥V` / `⌘⌥R`) |
 | Relação | `Ctrl+R`, depois clique no destino |
 | Tópico flutuante | Duplo clique no fundo |
 | Salvar / exportar / buscar | `Ctrl+S` / `Ctrl+E` / `Ctrl+F` |
@@ -85,6 +94,12 @@ No macOS, `Ctrl` = `⌘`. A lista completa também está em **Ajuda → Atalhos 
 **Recolher ramos (estilo XMind).** Passe o mouse sobre um tópico com subtópicos (ou selecione-o): aparece um `⊖` na saída do ramo. Clique nele para recolher; no lugar fica um círculo com o **número de tópicos escondidos**. Clique no número para expandir só aquele nível, ou `Alt`+clique para expandir o ramo inteiro. O tópico central não recolhe.
 
 O controle tem **hover próprio**: com o mouse em cima, ele fica preenchido na cor do ramo, um pouco maior, com a mãozinha e uma dica. Ele espera um instante antes de sumir, para dar tempo de o mouse ir do tópico até ele, e no zoom baixo a área de clique não fica menor que cerca de 16 px na tela. Clicar em qualquer ponto da caixa do tópico sempre seleciona o tópico.
+
+**Pincel de estilo.** O botão **Estilo** da barra superior copia a formatação do tópico selecionado ("como aparece": forma, cores, borda, texto, largura e ramo; nunca o texto, marcadores ou nota). Um clique aplica no próximo tópico clicado; **duplo clique** trava o pincel para aplicar em vários até `Esc`. Também em **Editar → Estilo** e no menu do botão direito.
+
+**Redimensionar.** Passe o mouse na borda esquerda ou direita de qualquer tópico: o cursor vira `↔`. Arraste para mudar a largura (o texto quebra ao vivo; nenhuma palavra é cortada). Duplo clique na borda de um tópico com largura fixa volta à largura automática.
+
+**Relações editáveis.** Selecione uma relação para ver os controles: os **quadrados** mudam a curvatura e os **círculos** escolhem onde a seta encaixa na borda do tópico. A forma acompanha os tópicos quando o mapa se reorganiza. No botão direito: Inverter direção, Pontas (fim, dois lados ou nenhuma) e Endireitar curva.
 
 **Botão direito.** Clique simples abre o menu de contexto, como antes. Clicar e **segurar arrastando** move o quadro (o cursor vira a mãozinha fechada), e o quadro cresce se você passar da borda do mapa.
 
@@ -222,7 +237,7 @@ mindforge/
 QT_QPA_PLATFORM=offscreen python -m pytest
 ```
 
-Os 218 testes cobrem:
+Os 238 testes cobrem:
 
 - **Modelo:** operações e serialização.
 - **Desfazer/refazer:** todas as operações e o limite de 100 níveis.
@@ -232,6 +247,7 @@ Os 218 testes cobrem:
 - **Atalhos:** os de teclado, incluindo os conflitos durante a edição.
 - **Recolher e botão direito (1.3):** contagem de escondidos, círculo sem colidir com tópicos em todos os esqueletos, `⊖` fora da exportação, clique em toda a caixa do tópico em todos os esqueletos e zooms, hover próprio do controle, duplo clique no controle, clique simples × arrasto.
 - **Idiomas (1.3):** toda chave com tradução, marcadores e atalhos preservados, nenhuma palavra em português na interface inglesa, troca de idioma preservando documento, seleção e desfazer.
+- **1.4.1:** ícone dos arquivos `.mfmap` em todos os tamanhos e formatos, Info.plist do Mac, registro no Windows e no Linux (uma vez por versão, sem nunca impedir o app de abrir), relação continua visível ao mover tópicos (inclusive flutuantes), copiar/colar/repor estilo e pincel (uma vez, travado e entre janelas), redimensionar pela borda (largura mínima sem cortar palavras, duplo clique volta ao automático), controles da relação (curvatura, encaixe, inverter, pontas, endireitar), forma da relação gravada no arquivo e compatível com arquivos antigos.
 - **1.4:** trocar o tema recolore todos os níveis em todos os esqueletos (mesmo com roda/cor estática escolhidas), espinha de peixe preenchida com variações funcionando, cores manuais (contagem e Repor cores), 12 temas rápidos, negrito/itálico/tachado na seleção e durante a edição, rótulos de relação sem cobrir tópicos, desempenho com 1.000 tópicos e um teste de "fluidez" com centenas de ações aleatórias de teclado, mouse, temas e idioma sem nenhum erro.
 - **Temas de cores (1.3):** contraste mínimo de texto e linhas em todas as paletas e variações, mapas antigos idênticos, roda sem alterar o central, cor estática, paleta dentro do arquivo, paletas do usuário (criar, editar, duplicar, excluir, limite, arquivo corrompido), completar automaticamente, padrão para novos mapas, painel, menu e aviso de exportação.
 - **Ramos e estilo (1.2):** os 7 estilos em todas as direções, pontas, padrões de linha, tronco único, espinha de peixe sem nenhuma linha cruzando texto, formas, riscado no SVG, compatibilidade com mapas antigos e o painel.

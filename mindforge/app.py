@@ -232,6 +232,9 @@ class MindForgeApp(QApplication):
 
     def start(self, files: list[str]) -> None:
         self._started = True
+        # ícone e duplo clique dos arquivos .mfmap no Windows/Linux (no Mac, vem do Info.plist)
+        from mindforge.integration import ensure_file_association
+        QTimer.singleShot(0, ensure_file_association)
         recovered = self.offer_recovery()
         opened = False
         for f in [*files, *self._pending_open]:

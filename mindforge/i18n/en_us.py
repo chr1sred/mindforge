@@ -584,4 +584,29 @@ EN: dict[str, str] = {
     "Temas rápidos": "Quick themes",
     "Alinhar espinhas": "Align bones",
     "Negrito / Itálico / Tachado": "Bold / Italic / Strikethrough",
+
+    # -------------------------------------------------- 1.4.1
+    "Selecione um tópico para copiar o estilo.": "Select a topic to copy its style.",
+    "Estilo copiado. Use Colar estilo ou clique com o pincel em outro tópico.":
+        "Style copied. Use Paste Style or click another topic with the brush.",
+    "Nenhum estilo copiado ainda.": "No style copied yet.",
+    "Colar estilo": "Paste style",
+    "Clique nos tópicos para aplicar o estilo (Esc encerra).": "Click topics to apply the style (Esc to finish).",
+    "Clique num tópico para aplicar o estilo (Esc cancela).": "Click a topic to apply the style (Esc to cancel).",
+    "Ajustar relação": "Adjust relationship",
+    "Pontas da relação": "Relationship ends",
+    "Redimensionar tópico": "Resize topic",
+    "Copiar estilo  (Ctrl+Alt+C)": "Copy Style  (Ctrl+Alt+C)",
+    "Colar estilo  (Ctrl+Alt+V)": "Paste Style  (Ctrl+Alt+V)",
+    "Repor estilo  (Ctrl+Alt+R)": "Reset Style  (Ctrl+Alt+R)",
+    "Pincel de estilo: copia o estilo do tópico e aplica no próximo clicado. Duplo clique: aplica em vários (Esc encerra)":
+        "Style brush: copies the topic’s style and applies it to the next one you click. "
+        "Double-click: apply to several (Esc to finish)",
+    "Inverter direção": "Reverse Direction",
+    "Pontas": "Ends",
+    "Seta no fim": "Arrow at End",
+    "Setas nos dois lados": "Arrows at Both Ends",
+    "Sem seta": "No Arrow",
+    "Endireitar curva": "Straighten Curve",
+    "Copiar / Colar / Repor estilo": "Copy / Paste / Reset style",
 }

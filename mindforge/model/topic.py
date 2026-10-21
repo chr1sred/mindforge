@@ -6,6 +6,8 @@ do ``Document``, que registra cada alteração na pilha de desfazer.
 """
 from __future__ import annotations
 
+import math
+
 import uuid
 from dataclasses import dataclass, field
 from typing import Iterator, Optional
@@ -177,17 +179,49 @@ class Relation:
     target: str
     label: str = ""
     id: str = field(default_factory=new_id)
+    # ---- forma personalizada (1.4.1); tudo opcional: None = automático
+    anchor_a: Optional[float] = None    # ponto de encaixe na borda da origem (0..1 ao redor da caixa)
+    anchor_b: Optional[float] = None    # ponto de encaixe na borda do destino
+    c1: Optional[tuple] = None          # controle da curva perto da origem (dx, dy a partir do encaixe)
+    c2: Optional[tuple] = None          # controle da curva perto do destino (dx, dy a partir do encaixe)
+    arrows: str = "end"                 # "end" | "both" | "none"
 
     def to_dict(self) -> dict:
         d = {"id": self.id, "source": self.source, "target": self.target}
         if self.label:
             d["label"] = self.label
+        for k in ("anchor_a", "anchor_b"):
+            v = getattr(self, k)
+            if v is not None:
+                d[k] = round(float(v), 5)
+        for k in ("c1", "c2"):
+            v = getattr(self, k)
+            if v is not None:
+                d[k] = [round(float(v[0]), 2), round(float(v[1]), 2)]
+        if self.arrows != "end":
+            d["arrows"] = self.arrows
         return d
+
+    def is_custom_shape(self) -> bool:
+        return any(v is not None for v in (self.anchor_a, self.anchor_b, self.c1, self.c2))
 
     @classmethod
     def from_dict(cls, d: dict) -> "Relation":
-        return cls(source=str(d["source"]), target=str(d["target"]),
-                   label=str(d.get("label", "")), id=str(d.get("id") or new_id()))
+        r = cls(source=str(d["source"]), target=str(d["target"]),
+                label=str(d.get("label", "")), id=str(d.get("id") or new_id()))
+        for k in ("anchor_a", "anchor_b"):
+            v = d.get(k)
+            if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v):
+                setattr(r, k, float(v) % 1.0)
+        for k in ("c1", "c2"):
+            v = d.get(k)
+            if isinstance(v, (list, tuple)) and len(v) == 2 and all(
+                    isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
+                    and abs(x) < 1e6 for x in v):
+                setattr(r, k, (float(v[0]), float(v[1])))
+        if d.get("arrows") in ("end", "both", "none"):
+            r.arrows = d["arrows"]
+        return r
 
 
 class MindMap:

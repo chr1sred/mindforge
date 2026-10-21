@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Callable, Optional
 from PySide6.QtCore import QSettings, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QCloseEvent, QIcon, QKeySequence
 from PySide6.QtWidgets import (
-    QDockWidget, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox,
+    QApplication, QDockWidget, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox,
     QSizePolicy, QToolBar, QToolButton, QVBoxLayout, QWidget,
 )
 
@@ -219,6 +219,9 @@ class MainWindow(QMainWindow):
         self._canvas_act(["Ctrl+D"], c.duplicate)
         self._canvas_act(["Ctrl+A"], c.select_all)
         self._canvas_act(["Ctrl+R"], c.start_relation)
+        self._canvas_act(["Ctrl+Alt+C"], c.copy_style)
+        self._canvas_act(["Ctrl+Alt+V"], lambda: c.paste_style())
+        self._canvas_act(["Ctrl+Alt+R"], c.reset_style)
         self._canvas_act(["Ctrl+B"], lambda: c.toggle_text_format("bold"))
         self._canvas_act(["Ctrl+I"], lambda: c.toggle_text_format("italic"))
         self._canvas_act(["Ctrl+Shift+X"], lambda: c.toggle_text_format("strike"))
@@ -272,6 +275,11 @@ class MainWindow(QMainWindow):
             e.addAction(self._act(_mac(text), slot))
         e.addSeparator()
         e.addAction(self._act(_mac(tr("Editar texto  (F2 / Espaço)")), lambda: c.start_edit()))
+        stm = e.addMenu(tr("Estilo"))
+        for text, slot in ((tr("Copiar estilo  (Ctrl+Alt+C)"), c.copy_style),
+                           (tr("Colar estilo  (Ctrl+Alt+V)"), lambda: c.paste_style()),
+                           (tr("Repor estilo  (Ctrl+Alt+R)"), c.reset_style)):
+            stm.addAction(self._act(_mac(text), slot))
         fmt = e.addMenu(tr("Formatar texto"))
         for text, kind in ((tr("Negrito  (Ctrl+B)"), "bold"), (tr("Itálico  (Ctrl+I)"), "italic"),
                            (tr("Tachado  (Ctrl+Shift+X)"), "strike")):
@@ -390,6 +398,13 @@ class MainWindow(QMainWindow):
             mk_menu.addAction(marker_icon(key), tr(MARKER_LABELS[key]), lambda k=key: self.panel._toggle_marker(k))
         self._tb_button(tb, "marker", tr("Marcador"), tr("Adicionar marcador ao tópico"), None, mk_menu)
         self._tb_button(tb, "note", tr("Nota"), tr("Nota do tópico (Ctrl+Shift+N)"), self._focus_note)
+        self.brush_btn = self._tb_button(
+            tb, "brush", tr("Estilo"),
+            tr("Pincel de estilo: copia o estilo do tópico e aplica no próximo clicado. "
+               "Duplo clique: aplica em vários (Esc encerra)"), self._brush_clicked)
+        self.brush_btn.setCheckable(True)
+        self._brush_clicked_at = 0.0
+        c.brush_changed.connect(lambda mode: self.brush_btn.setChecked(mode is not None))
 
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
@@ -551,10 +566,26 @@ class MainWindow(QMainWindow):
             if t is not None and t.parent is not None:
                 menu.addAction(tr("Tornar tópico flutuante"), lambda: self._detach(tid))
             menu.addSeparator()
+            menu.addAction(_mac(tr("Copiar estilo  (Ctrl+Alt+C)")), c.copy_style)
+            pst = menu.addAction(_mac(tr("Colar estilo  (Ctrl+Alt+V)")), lambda: c.paste_style())
+            pst.setEnabled(c.has_copied_style())
+            menu.addAction(_mac(tr("Repor estilo  (Ctrl+Alt+R)")), c.reset_style)
+            menu.addSeparator()
             menu.addAction(tr("Excluir"), c.delete_selected)
         elif c.mscene.selected_relation_ids():
             rid = c.mscene.selected_relation_ids()[0]
+            rel = next((r for r in self.doc.map.relations if r.id == rid), None)
             menu.addAction(tr("Editar rótulo…"), lambda: c.edit_relation_label(rid))
+            menu.addAction(tr("Inverter direção"), lambda: c.relation_action(rid, "reverse"))
+            ends = menu.addMenu(tr("Pontas"))
+            for key, label in (("end", tr("Seta no fim")), ("both", tr("Setas nos dois lados")),
+                               ("none", tr("Sem seta"))):
+                a = ends.addAction(label, lambda k=key: c.relation_action(rid, "arrows", k))
+                a.setCheckable(True)
+                a.setChecked(rel is not None and rel.arrows == key)
+            st = menu.addAction(tr("Endireitar curva"), lambda: c.relation_action(rid, "straighten"))
+            st.setEnabled(rel is not None and rel.is_custom_shape())
+            menu.addSeparator()
             menu.addAction(tr("Excluir relação"), c.delete_selected)
         else:
             pos = c.mapToScene(c.mapFromGlobal(global_pos))
@@ -564,6 +595,23 @@ class MainWindow(QMainWindow):
             menu.addAction(tr("Ajustar à tela"), c.zoom_fit)
             menu.addAction(tr("Expandir tudo"), lambda: c.set_collapsed_all(False))
         menu.exec(global_pos)
+
+    def _brush_clicked(self) -> None:
+        """Clique: pincel para 1 tópico. Duplo clique: pincel travado. Clique com o pincel ativo: desliga."""
+        import time
+        c = self.canvas
+        now = time.monotonic()
+        quick = now - self._brush_clicked_at < QApplication.doubleClickInterval() / 1000.0
+        self._brush_clicked_at = now
+        if c.brush_mode == "once" and quick:
+            c.brush_mode = "sticky"                 # 2º clique do duplo clique: trava
+            c.start_brush(sticky=True)
+        elif c.brush_mode is not None:
+            c.end_brush()
+        else:
+            c.start_brush(sticky=False)
+        self.brush_btn.setChecked(c.brush_mode is not None)
+        c.setFocus()
 
     def _detach(self, tid: str) -> None:
         it = self.canvas.mscene.topic_items.get(tid)
@@ -771,5 +819,5 @@ def _mac(text: str) -> str:
     """No macOS, exibe ⌘/⇧ no lugar de Ctrl/Shift nas dicas."""
     import sys
     if sys.platform == "darwin":
-        return text.replace("Ctrl+", "⌘").replace("Shift+", "⇧")
+        return text.replace("Ctrl+", "⌘").replace("Alt+", "⌥").replace("Shift+", "⇧")
     return text

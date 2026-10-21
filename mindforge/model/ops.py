@@ -248,6 +248,12 @@ def clear_colors(m: MindMap, ids: Optional[Iterable[str]] = None) -> None:
             t.style.pop(k, None)
 
 
+def paste_style(m: MindMap, ids: Iterable[str], style: dict) -> None:
+    """Substitui a formatação dos tópicos pela copiada (texto, marcadores e nota ficam)."""
+    for tid in ids:
+        _get(m, tid).style = dict(style)
+
+
 def clear_style(m: MindMap, ids: Iterable[str]) -> None:
     for tid in ids:
         _get(m, tid).style.clear()
@@ -341,6 +347,45 @@ def add_relation(m: MindMap, source: str, target: str, label: str = "") -> Relat
 def delete_relations(m: MindMap, rel_ids: Iterable[str]) -> None:
     rs = set(rel_ids)
     m.relations = [r for r in m.relations if r.id not in rs]
+
+
+def _relation(m: MindMap, rel_id: str) -> Relation:
+    for r in m.relations:
+        if r.id == rel_id:
+            return r
+    raise OpError(tr("Relação não encontrada."))
+
+
+def set_relation_shape(m: MindMap, rel_id: str, **shape) -> None:
+    """Ajusta a forma da relação: anchor_a/anchor_b (0..1), c1/c2 ((dx, dy)) e arrows."""
+    r = _relation(m, rel_id)
+    for k in ("anchor_a", "anchor_b"):
+        if k in shape:
+            v = shape[k]
+            setattr(r, k, None if v is None else float(v) % 1.0)
+    for k in ("c1", "c2"):
+        if k in shape:
+            v = shape[k]
+            setattr(r, k, None if v is None else (float(v[0]), float(v[1])))
+    if "arrows" in shape:
+        if shape["arrows"] not in ("end", "both", "none"):
+            raise OpError("arrows")
+        r.arrows = shape["arrows"]
+
+
+def reset_relation_shape(m: MindMap, rel_id: str) -> None:
+    """Endireitar curva: volta encaixes e curvatura ao automático."""
+    r = _relation(m, rel_id)
+    r.anchor_a = r.anchor_b = None
+    r.c1 = r.c2 = None
+
+
+def reverse_relation(m: MindMap, rel_id: str) -> None:
+    """Inverter direção: a seta passa a apontar para a origem (a forma da curva é mantida)."""
+    r = _relation(m, rel_id)
+    r.source, r.target = r.target, r.source
+    r.anchor_a, r.anchor_b = r.anchor_b, r.anchor_a
+    r.c1, r.c2 = r.c2, r.c1
 
 
 def set_relation_label(m: MindMap, rel_id: str, label: str) -> None:
