@@ -50,3 +50,37 @@ def _portugues():
             app._apply_language("pt_BR", persist=False)
         else:
             i18n.set_language("pt_BR")
+
+
+# ------------------------------------------------------------ saída limpa
+# No macOS, o PySide6 às vezes derruba o processo (segmentation fault) DEPOIS que todos os
+# testes passaram, quando o Python destrói os objetos do Qt numa ordem que o Qt não espera.
+# Para evitar isso, as janelas são fechadas e o processo sai direto, com o código do pytest.
+_exit_status = 0
+
+
+def pytest_sessionfinish(session, exitstatus):
+    global _exit_status
+    _exit_status = int(exitstatus)
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_unconfigure(config):
+    app = QCoreApplication.instance()
+    if app is not None:
+        for w in list(getattr(app, "windows", [])):
+            try:
+                w.doc.mark_saved()
+                w.close()
+            except Exception:
+                pass
+        app.processEvents()
+    rep = config.pluginmanager.get_plugin("terminalreporter")
+    if rep is not None:
+        rep._tw.flush()
+    for f in (sys.stdout, sys.stderr, sys.__stdout__, sys.__stderr__):
+        try:
+            f.flush()
+        except Exception:
+            pass
+    os._exit(_exit_status)

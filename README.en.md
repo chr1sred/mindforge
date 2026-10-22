@@ -89,7 +89,16 @@ On macOS, `Ctrl` = `⌘`. The full list is also under **Help → Keyboard shortc
 **Tips:**
 
 - **Paste an indented list.** Pasting (`Ctrl+V`) indented text — a list from Notes, an email or Markdown — builds the topic hierarchy automatically.
-- **Drag to reorganize.** Dropping a topic onto another makes it a subtopic.
+- **Drag to reorganize.** Where you drop decides what happens; the dragged topic turns translucent so you can see the destination:
+
+  | Where you drop | What happens |
+  |---|---|
+  | Top band (or left band, when siblings sit side by side) of a topic | Goes **before** it, as a sibling (a blue line shows where) |
+  | Bottom (or right) band | Goes **after** it |
+  | Middle of the topic | Becomes its **subtopic** (dashed outline) |
+  | Empty background or its own parent | Goes back to its place |
+- **Arrow keys** follow the structure: previous/next sibling, first child toward the side the branch grows and parent toward the side it comes from. At the end of a row they move on to the next topic of the branch above.
+- **Select All + Delete** removes every topic except the central one.
 
 **Collapsing branches (XMind style).** Hover over a topic that has subtopics (or select it) and a `⊖` appears where the branch leaves. Click it to collapse; a circle with the **number of hidden topics** takes its place. Click the number to expand one level, or `Alt`+click to expand the whole branch. The central topic doesn’t collapse.
 
@@ -97,7 +106,7 @@ The control has **its own hover**: under the mouse it fills with the branch colo
 
 **Style brush.** The **Style** button in the top bar copies the selected topic’s formatting ("as it looks": shape, colors, border, text, width and branch; never the text, markers or note). One click applies it to the next topic you click; **double-click** locks the brush so you can apply it to several until `Esc`. Also under **Edit → Style** and in the right-click menu.
 
-**Resizing.** Hover over the left or right edge of any topic: the cursor becomes `↔`. Drag to change the width (text rewraps live; no word is ever cut). Double-click the edge of a fixed-width topic to go back to automatic width.
+**Resizing.** With the topic selected, hover over its left or right edge (right edge only on topics without a box): the cursor becomes `↔`. Drag to change the width (text rewraps live; no word is ever cut). Double-click the edge of a fixed-width topic to go back to automatic width.
 
 **Editable relationships.** Select a relationship to see its handles: the **squares** change the curvature and the **circles** choose where the arrow attaches to the topic’s edge. The shape follows the topics when the map reflows. Right-click: Reverse Direction, Ends (end, both or none) and Straighten Curve.
 
@@ -237,7 +246,7 @@ mindforge/
 QT_QPA_PLATFORM=offscreen python -m pytest
 ```
 
-The 238 tests cover:
+The 252 tests cover:
 
 - **Model:** operations and serialization.
 - **Undo/redo:** every operation and the 100-level limit.
@@ -247,6 +256,7 @@ The 238 tests cover:
 - **Shortcuts:** keyboard shortcuts, including conflicts while editing.
 - **Collapse and right button (1.3):** hidden count, circle never colliding with topics in every structure, `⊖` left out of exports, clicks anywhere in a topic’s box in every structure and zoom, the control’s own hover, double-click on the control, simple click vs. drag.
 - **Languages (1.3):** every key translated, placeholders and shortcuts preserved, no Portuguese words in the English interface, language switch keeping document, selection and undo.
+- **1.4.2:** reorder by dragging (before/after/child) in every structure, insertion line, several topics at once, floating topic dropped between siblings, resizing only on the selected topic, structural arrow keys, Select All + Delete, and crashes found by the fluidity test (zoom + delete a relationship, relationship with a deleted source, dragging with the central topic selected).
 - **1.4.1:** `.mfmap` file icon in every size and format, Mac Info.plist, Windows and Linux registration (once per version, never blocking the app from opening), relationships stay visible when moving topics (including floating ones), copy/paste/reset style and the brush (once, locked and across windows), edge resizing (minimum width never cuts words, double-click goes back to automatic), relationship handles (curvature, attachment, reverse, ends, straighten), relationship shape saved in the file and compatible with older files.
 - **1.4:** changing the theme recolors every level in every structure (even with a wheel/static color chosen), filled fishbone with working variations, manual colors (count and Reset colors), 12 quick themes, bold/italic/strikethrough on the selection and while editing, relationship labels never covering topics, performance with 1,000 topics and a "fluidity" test with hundreds of random keyboard, mouse, theme and language actions without a single error.
 - **Color themes (1.3):** minimum text and line contrast in every palette and variation, older maps identical, wheel never changes the center, static color, palette stored in the file, user palettes (create, edit, duplicate, delete, limit, corrupted file), auto-complete, default for new maps, panel, menu and export warning.

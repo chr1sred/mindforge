@@ -12,9 +12,9 @@ from dataclasses import replace
 from typing import Iterable, Iterator, Optional
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QPen
+from PySide6.QtGui import QColor, QPainterPath, QPen
 from PySide6.QtGui import QCursor
-from PySide6.QtWidgets import QApplication, QGraphicsScene, QGraphicsSceneMouseEvent
+from PySide6.QtWidgets import QApplication, QGraphicsPathItem, QGraphicsScene, QGraphicsSceneMouseEvent
 
 from mindforge.document import Document
 from mindforge.layouts import LayoutResult, Metric, get_layout
@@ -35,7 +35,7 @@ class MindScene(QGraphicsScene):
     edit_requested = Signal(str)
     collapse_requested = Signal(str)
     expand_all_requested = Signal(str)
-    topics_dropped = Signal(list, str)          # ids arrastados, id do novo pai
+    topics_dropped = Signal(list, dict)         # ids arrastados, intenção (drop_intent)
     floating_moved = Signal(list)               # [(id, x, y)]
     background_double_clicked = Signal(QPointF)
     relation_edit_requested = Signal(str)
@@ -58,6 +58,7 @@ class MindScene(QGraphicsScene):
         self.background_color = "#FFFFFF"
         self.selection_color = "#2F80ED"
         self._drag: Optional[dict] = None
+        self._marker: Optional[QGraphicsPathItem] = None      # linha de inserção ao arrastar
         self._bounds = QRectF()
         self.view_scale = 1.0               # zoom da tela (área mínima de clique do ⊖)
         self.last_handle_click = 0.0        # protege contra "duplo clique no fundo" logo após clicar no ⊖
@@ -135,6 +136,8 @@ class MindScene(QGraphicsScene):
             item.setFlag(item.GraphicsItemFlag.ItemIsMovable, not item.is_root)
             item.setVisible(True)
             item.drop_target = False
+            if item.opacity() != 1.0 and self._drag is None:
+                item.setOpacity(1.0)
 
         # ---- linhas
         keys = set()
@@ -368,11 +371,15 @@ class MindScene(QGraphicsScene):
                 and grabbed._resize is None:
             m = self.doc.map
             from mindforge.model import ops
-            tops = [t for t in ops.top_level_selection(m, self.selected_topic_ids()) if t is not m.root]
+            # o central nunca se move: com ele na seleção (ex.: Selecionar tudo), os principais é que vão
+            sel = [i for i in self.selected_topic_ids() if i != m.root.id]
+            tops = list(ops.top_level_selection(m, sel))
             moved = set()
             for t in tops:
                 moved.update(x.id for x in t.walk_visible())
             orig = {tid: QPointF(self.topic_items[tid].pos()) for tid in moved if tid in self.topic_items}
+            if grabbed.tid not in orig:
+                return
             self._drag = {"item": grabbed, "tops": [t.id for t in tops], "moved": moved,
                           "orig": orig, "start": QPointF(e.scenePos()), "active": False}
 
@@ -385,6 +392,8 @@ class MindScene(QGraphicsScene):
             if (e.scenePos() - d["start"]).manhattanLength() < 4:
                 return
             d["active"] = True
+            for tid in d["orig"]:           # o que está sendo arrastado fica translúcido (vê-se o destino)
+                self.topic_items[tid].setOpacity(0.55)
             for ci in self.conn_items.values():
                 if ci.owner in d["moved"] or (ci.kid_ids & d["moved"]):
                     ci.setVisible(False)
@@ -396,12 +405,126 @@ class MindScene(QGraphicsScene):
         for tid, p0 in d["orig"].items():
             if tid not in selected:
                 self.topic_items[tid].setPos(p0 + delta)
-        target = self.topic_at(e.scenePos(), exclude=d["moved"])
-        for it in self.topic_items.values():
-            flag = it is target
+        intent = self.drop_intent(e.scenePos(), d["moved"], d["tops"])
+        d["intent"] = intent
+        child_target = intent["target"] if intent and intent["kind"] == "child" else None
+        for tid, it in self.topic_items.items():
+            flag = tid == child_target
             if it.drop_target != flag:
                 it.drop_target = flag
                 it.update()
+        self._show_insert_marker(intent)
+
+    # ------------------------------------------------- soltar: filho, antes ou depois (1.4.2)
+    def _sibling_axis(self, t) -> str:
+        """"v" se os irmãos ficam um embaixo do outro, "h" se lado a lado (pela posição real na tela)."""
+        par = t.parent
+        if par is None:
+            return "v"
+        sibs = [s for s in par.visible_children() if s.id in self.topic_items]
+        if t not in sibs or len(sibs) < 2:
+            return "v"
+        i = sibs.index(t)
+
+        def box(tid):           # caixa do layout (não a posição do arraste em andamento)
+            x, y = self.layout_result.pos.get(tid, (0.0, 0.0))
+            v = self.visuals.get(tid)
+            return x, y, x + (v.w if v else 0), y + (v.h if v else 0)
+
+        def axis_between(a, b):
+            ax0, ay0, ax1, ay1 = a
+            bx0, by0, bx1, by1 = b
+            gap_y = max(by0 - ay1, ay0 - by1)        # > 0: não se sobrepõem na vertical
+            gap_x = max(bx0 - ax1, ax0 - bx1)
+            if gap_y > 0 >= gap_x:
+                return "v"
+            if gap_x > 0 >= gap_y:
+                return "h"
+            return "v" if gap_y >= gap_x else "h"
+
+        b0 = box(t.id)
+        neighbors = [sibs[j].id for j in (i - 1, i + 1) if 0 <= j < len(sibs)]
+        # o vizinho mais próximo na ordem define a direção da fila
+        def dist(tid):
+            x0, y0, x1, y1 = box(tid)
+            return abs((x0 + x1) / 2 - (b0[0] + b0[2]) / 2) + abs((y0 + y1) / 2 - (b0[1] + b0[3]) / 2)
+        nb = min(neighbors, key=dist)
+        return axis_between(b0, box(nb))
+
+    def drop_intent(self, pos: QPointF, moved: set, tops: list) -> Optional[dict]:
+        """O que acontece ao soltar em `pos`: {"kind": "child"|"before"|"after", "target", "parent", "axis"}.
+
+        Faixa de cima/esquerda do alvo → antes; de baixo/direita → depois; meio → filho.
+        Um pouco fora da caixa (entre dois irmãos) também conta. None = soltar no vazio."""
+        m = self.doc.map
+        scale = self.view_scale or 1.0
+        margin = 10.0 / scale
+        target = self.topic_at(pos, exclude=moved)
+        if target is None:          # perto (entre irmãos): procura com folga
+            best = None
+            for tid, it in self.topic_items.items():
+                if tid in moved or not it.isVisible():
+                    continue
+                r = it.mapRectToScene(it.box_rect()).adjusted(-margin, -margin, margin, margin)
+                if r.contains(pos):
+                    dist = (r.center() - pos).manhattanLength()
+                    if best is None or dist < best[0]:
+                        best = (dist, it)
+            target = best[1] if best else None
+        if target is None:
+            return None
+        t = m.find(target.tid)
+        if t is None:
+            return None
+        movers = [m.find(i) for i in tops]
+        movers = [x for x in movers if x is not None]
+        if any(x is t or x.is_ancestor_of(t) for x in movers):
+            return None
+        box = target.mapRectToScene(target.box_rect())
+        axis = self._sibling_axis(t)
+        can_sibling = t.parent is not None
+        if can_sibling:
+            length = box.height() if axis == "v" else box.width()
+            coord = (pos.y() - box.top()) if axis == "v" else (pos.x() - box.left())
+            zone = min(max(0.3 * length, 6.0 / scale), 0.42 * length)
+            if coord < zone:
+                return {"kind": "before", "target": t.id, "parent": t.parent.id, "axis": axis}
+            if coord > length - zone:
+                return {"kind": "after", "target": t.id, "parent": t.parent.id, "axis": axis}
+        # filho: soltar sobre o próprio pai não muda nada (não manda o tópico para o fim da lista)
+        if all(x.parent is t for x in movers):
+            return {"kind": "none", "target": t.id, "parent": t.id, "axis": axis}
+        return {"kind": "child", "target": t.id, "parent": t.id, "axis": axis}
+
+    def _show_insert_marker(self, intent: Optional[dict]) -> None:
+        if intent is None or intent["kind"] not in ("before", "after"):
+            if self._marker is not None:
+                self._marker.setVisible(False)
+            return
+        it = self.topic_items[intent["target"]]
+        box = it.mapRectToScene(it.box_rect())
+        gap = 5.0
+        path = QPainterPath()
+        if intent["axis"] == "v":
+            y = box.top() - gap if intent["kind"] == "before" else box.bottom() + gap
+            path.moveTo(box.left() - 4, y)
+            path.lineTo(box.right() + 4, y)
+            dot = QPointF(box.left() - 4, y)
+        else:
+            x = box.left() - gap if intent["kind"] == "before" else box.right() + gap
+            path.moveTo(x, box.top() - 4)
+            path.lineTo(x, box.bottom() + 4)
+            dot = QPointF(x, box.top() - 4)
+        path.addEllipse(dot, 3.5, 3.5)
+        if self._marker is None:
+            self._marker = QGraphicsPathItem()
+            self._marker.setZValue(1000)
+            self.addItem(self._marker)
+        pen = QPen(QColor(self.selection_color), 3.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+        self._marker.setPen(pen)
+        self._marker.setBrush(QColor(self.selection_color))
+        self._marker.setPath(path)
+        self._marker.setVisible(True)
 
     def mouseReleaseEvent(self, e: QGraphicsSceneMouseEvent) -> None:
         d = self._drag
@@ -409,11 +532,16 @@ class MindScene(QGraphicsScene):
         self._drag = None
         if not d or not d["active"]:
             return
-        target = self.topic_at(e.scenePos(), exclude=d["moved"])
+        intent = self.drop_intent(e.scenePos(), d["moved"], d["tops"])
         for it in self.topic_items.values():
             it.drop_target = False
-        if target is not None:
-            self.topics_dropped.emit(list(d["tops"]), target.tid)
+            it.setOpacity(1.0)
+        self._show_insert_marker(None)
+        if intent is not None and intent["kind"] != "none":
+            self.topics_dropped.emit(list(d["tops"]), intent)
+            return
+        if intent is not None:          # sobre o próprio pai: volta ao lugar
+            self.sync()
             return
         m = self.doc.map
         moves = []

@@ -159,6 +159,8 @@ def test_arrastar_a_borda_muda_a_largura(window):
     it = s.topic_items[t.id]
     vp = c.viewport()
     w0 = it.vis.w
+    assert it.edge_at(QPointF(it.vis.w - 2, it.vis.h / 2)) is None      # 1.4.2: só com o tópico selecionado
+    c.select_id(t.id)
     edge = _vp(c, it, QPointF(it.vis.w - 2, it.vis.h / 2))
     QTest.mouseMove(vp, edge + QPoint(-2, 0))
     QTest.mouseMove(vp, edge)

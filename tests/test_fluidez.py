@@ -47,6 +47,24 @@ def _rel_drag(c, r):
     QTest.mouseRelease(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, p + QPoint(r.randint(-80, 80), 0))
 
 
+def _reorder_drag(c, r):
+    """1.4.2: arrasta um tópico para antes/depois/dentro de outro (zonas reais de soltar)."""
+    from PySide6.QtCore import QPointF
+    items = [it for it in c.mscene.topic_items.values() if not it.is_root]
+    if len(items) < 2:
+        return
+    src, dst = r.sample(items, 2)
+    vp = c.viewport()
+    b = dst.box_rect()
+    f = r.choice([0.1, 0.5, 0.9])
+    p_dst = c.mapFromScene(dst.mapToScene(QPointF(b.left() + b.width() * f, b.top() + b.height() * f)))
+    p_src = c.mapFromScene(src.mapToScene(src.box_rect().center()))
+    QTest.mousePress(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, p_src)
+    for k in range(1, 6):
+        QTest.mouseMove(vp, p_src + (p_dst - p_src) * (k / 5))
+    QTest.mouseRelease(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, p_dst)
+
+
 def _rel_action(c, r):
     rels = c.doc.map.relations
     if rels:
@@ -93,6 +111,8 @@ def test_acoes_aleatorias_nao_quebram(qapp):
              lambda: _edge_drag(c, r),
              lambda: _rel_drag(c, r),
              lambda: _rel_action(c, r),
+             lambda: _reorder_drag(c, r),
+             lambda: _reorder_drag(c, r),
             ]
             for step in range(150):
                 try:

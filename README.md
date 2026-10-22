@@ -89,7 +89,16 @@ No macOS, `Ctrl` = `⌘`. A lista completa também está em **Ajuda → Atalhos 
 **Dicas:**
 
 - **Colar lista indentada.** Colar (`Ctrl+V`) um texto indentado, como uma lista do Notes, de um e-mail ou em Markdown, cria a hierarquia de tópicos automaticamente.
-- **Arrastar para reorganizar.** Arrastar um tópico sobre outro o transforma em subtópico dele.
+- **Arrastar para reorganizar.** Ao arrastar, o lugar onde você solta decide o que acontece. O tópico arrastado fica translúcido para você ver o destino:
+
+  | Onde soltar | O que acontece |
+  |---|---|
+  | Faixa de cima (ou da esquerda, quando os irmãos ficam lado a lado) de um tópico | Entra **antes** dele, como irmão (uma linha azul mostra onde) |
+  | Faixa de baixo (ou da direita) | Entra **depois** dele |
+  | Meio do tópico | Vira **subtópico** dele (contorno tracejado) |
+  | Fundo vazio ou o próprio pai | Volta ao lugar |
+- **Setas do teclado.** Seguem a estrutura: irmão anterior/seguinte, primeiro filho para o lado em que o ramo cresce e pai para o lado de onde ele vem. No fim de uma fila, seguem para o próximo tópico do ramo de cima.
+- **Selecionar tudo + Delete** apaga todos os tópicos menos o central.
 
 **Recolher ramos (estilo XMind).** Passe o mouse sobre um tópico com subtópicos (ou selecione-o): aparece um `⊖` na saída do ramo. Clique nele para recolher; no lugar fica um círculo com o **número de tópicos escondidos**. Clique no número para expandir só aquele nível, ou `Alt`+clique para expandir o ramo inteiro. O tópico central não recolhe.
 
@@ -97,7 +106,7 @@ O controle tem **hover próprio**: com o mouse em cima, ele fica preenchido na c
 
 **Pincel de estilo.** O botão **Estilo** da barra superior copia a formatação do tópico selecionado ("como aparece": forma, cores, borda, texto, largura e ramo; nunca o texto, marcadores ou nota). Um clique aplica no próximo tópico clicado; **duplo clique** trava o pincel para aplicar em vários até `Esc`. Também em **Editar → Estilo** e no menu do botão direito.
 
-**Redimensionar.** Passe o mouse na borda esquerda ou direita de qualquer tópico: o cursor vira `↔`. Arraste para mudar a largura (o texto quebra ao vivo; nenhuma palavra é cortada). Duplo clique na borda de um tópico com largura fixa volta à largura automática.
+**Redimensionar.** Com o tópico selecionado, passe o mouse na borda esquerda ou direita (nos tópicos sem caixa, só na direita): o cursor vira `↔`. Arraste para mudar a largura (o texto quebra ao vivo; nenhuma palavra é cortada). Duplo clique na borda de um tópico com largura fixa volta à largura automática.
 
 **Relações editáveis.** Selecione uma relação para ver os controles: os **quadrados** mudam a curvatura e os **círculos** escolhem onde a seta encaixa na borda do tópico. A forma acompanha os tópicos quando o mapa se reorganiza. No botão direito: Inverter direção, Pontas (fim, dois lados ou nenhuma) e Endireitar curva.
 
@@ -237,7 +246,7 @@ mindforge/
 QT_QPA_PLATFORM=offscreen python -m pytest
 ```
 
-Os 238 testes cobrem:
+Os 252 testes cobrem:
 
 - **Modelo:** operações e serialização.
 - **Desfazer/refazer:** todas as operações e o limite de 100 níveis.
@@ -247,6 +256,7 @@ Os 238 testes cobrem:
 - **Atalhos:** os de teclado, incluindo os conflitos durante a edição.
 - **Recolher e botão direito (1.3):** contagem de escondidos, círculo sem colidir com tópicos em todos os esqueletos, `⊖` fora da exportação, clique em toda a caixa do tópico em todos os esqueletos e zooms, hover próprio do controle, duplo clique no controle, clique simples × arrasto.
 - **Idiomas (1.3):** toda chave com tradução, marcadores e atalhos preservados, nenhuma palavra em português na interface inglesa, troca de idioma preservando documento, seleção e desfazer.
+- **1.4.2:** reordenar arrastando (antes/depois/filho) em todos os esqueletos, linha de inserção, vários tópicos juntos, flutuante solto entre irmãos, redimensionar só com o tópico selecionado, setas pela estrutura, Selecionar tudo + Delete, e travamentos achados pelo teste de fluidez (zoom + apagar relação, relação com origem apagada, arrastar com o central na seleção).
 - **1.4.1:** ícone dos arquivos `.mfmap` em todos os tamanhos e formatos, Info.plist do Mac, registro no Windows e no Linux (uma vez por versão, sem nunca impedir o app de abrir), relação continua visível ao mover tópicos (inclusive flutuantes), copiar/colar/repor estilo e pincel (uma vez, travado e entre janelas), redimensionar pela borda (largura mínima sem cortar palavras, duplo clique volta ao automático), controles da relação (curvatura, encaixe, inverter, pontas, endireitar), forma da relação gravada no arquivo e compatível com arquivos antigos.
 - **1.4:** trocar o tema recolore todos os níveis em todos os esqueletos (mesmo com roda/cor estática escolhidas), espinha de peixe preenchida com variações funcionando, cores manuais (contagem e Repor cores), 12 temas rápidos, negrito/itálico/tachado na seleção e durante a edição, rótulos de relação sem cobrir tópicos, desempenho com 1.000 tópicos e um teste de "fluidez" com centenas de ações aleatórias de teclado, mouse, temas e idioma sem nenhum erro.
 - **Temas de cores (1.3):** contraste mínimo de texto e linhas em todas as paletas e variações, mapas antigos idênticos, roda sem alterar o central, cor estática, paleta dentro do arquivo, paletas do usuário (criar, editar, duplicar, excluir, limite, arquivo corrompido), completar automaticamente, padrão para novos mapas, painel, menu e aviso de exportação.

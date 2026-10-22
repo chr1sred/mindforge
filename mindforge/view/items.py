@@ -52,9 +52,10 @@ class TopicItem(QGraphicsItem):
 
     # --------------------------------------------------------------- geometria
     def set_visual(self, vis: TopicVisual) -> None:
+        # avisar ANTES de mudar (o índice da cena usa a área antiga para tirar o item do lugar)
         self.prepareGeometryChange()
-        self.vis = vis
         self.handle.geometry_changed()
+        self.vis = vis
         self.update_handle()
         self.update()
 
@@ -161,7 +162,8 @@ class TopicItem(QGraphicsItem):
     def edge_at(self, pos: QPointF) -> Optional[str]:
         """"left"/"right" quando o ponteiro está na borda lateral da caixa (zona de redimensionar)."""
         sc = self.scene()
-        if self.vis is None or self.editing or sc is None:
+        # só no tópico já selecionado: o 1º clique-e-arraste sempre move o tópico (1.4.2)
+        if self.vis is None or self.editing or sc is None or not self.isSelected():
             return None
         for v in sc.views():
             if getattr(v, "brush_mode", None) or getattr(v, "relation_source", None):
@@ -170,7 +172,8 @@ class TopicItem(QGraphicsItem):
         zone = min(max(RESIZE_ZONE_PX / scale, 4.0), self.vis.w / 4)
         if not (0 <= pos.y() <= self.vis.h):
             return None
-        if 0 <= pos.x() <= zone:
+        boxless = self.vis.style.shape in ("nenhuma", "sublinhado", "sublinhado_duplo")
+        if 0 <= pos.x() <= zone and not boxless:      # sem caixa: a borda esquerda é a 1ª letra
             return "left"
         if self.vis.w - zone <= pos.x() <= self.vis.w:
             return "right"
@@ -514,6 +517,7 @@ def rect_param(rect: QRectF, pt: QPointF, pad: float = 4.0) -> float:
 
 
 REL_HANDLE_PX = 5.0       # tamanho dos controles da relação, em pixels de tela
+REL_HANDLE_MAX = 20.0     # teto, em unidades do mapa (zoom bem baixo)
 
 
 class RelationItem(QGraphicsPathItem):
@@ -609,6 +613,7 @@ class RelationItem(QGraphicsPathItem):
                     best, best_hit = QPointF(self._label_pos), hit
                 if hit == 0:
                     break
+            self.prepareGeometryChange()
             self._label_pos = best
 
     def _apply(self, g: dict) -> None:
@@ -652,7 +657,7 @@ class RelationItem(QGraphicsPathItem):
     def _handle_r(self) -> float:
         sc = self.scene()
         scale = getattr(sc, "view_scale", 1.0) if sc is not None else 1.0
-        return max(4.0, REL_HANDLE_PX / (scale or 1.0))
+        return min(REL_HANDLE_MAX, max(4.0, REL_HANDLE_PX / (scale or 1.0)))
 
     def _editing(self) -> bool:
         sc = self.scene()
@@ -674,7 +679,9 @@ class RelationItem(QGraphicsPathItem):
     def _handles_rect(self) -> QRectF:
         if not self._pts:
             return QRectF()
-        r = self._handle_r() + 4
+        # tamanho fixo (não depende do zoom): o boundingRect só pode mudar com prepareGeometryChange,
+        # senão o índice da cena guarda uma área velha e o Qt quebra ao apagar o item (1.4.2)
+        r = REL_HANDLE_MAX + 4
         xs = [self._pts[k].x() for k in ("p0", "c1", "c2", "p1")]
         ys = [self._pts[k].y() for k in ("p0", "c1", "c2", "p1")]
         return QRectF(min(xs) - r, min(ys) - r, max(xs) - min(xs) + 2 * r, max(ys) - min(ys) + 2 * r)
@@ -801,6 +808,7 @@ class RelationItem(QGraphicsPathItem):
             sh.setdefault("c2", (g["c2"].x() - g["p1"].x(), g["c2"].y() - g["p1"].y()))
         d["moved"] = True
         self._apply(self._build(self._a, self._b, sh, 1.0))
+        self.prepareGeometryChange()
         self._label_pos = self.path().pointAtPercent(0.5)
         self.update()
         e.accept()

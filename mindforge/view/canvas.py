@@ -121,6 +121,8 @@ class MindCanvas(QGraphicsView):
     def _on_doc_changed(self) -> None:
         if self.editor is not None and self.doc.map.find(self.editor.tid) is None:
             self._discard_editor()
+        if self.relation_source and self.doc.map.find(self.relation_source) is None:
+            self._end_relation_mode()       # a origem da relação foi apagada/desfeita no meio do caminho
         overrides = {self.editor.tid: self.editor.toPlainText() or " "} if self.editor else None
         self.mscene.sync(overrides)
         self.setBackgroundBrush(QColor(self.mscene.background_color))
@@ -384,6 +386,10 @@ class MindCanvas(QGraphicsView):
             return
         dx, dy = {"left": (-1, 0), "right": (1, 0), "up": (0, -1), "down": (0, 1)}[direction]
         c0 = items[cur].mapRectToScene(items[cur].box_rect()).center()
+        nxt = self._structural_neighbor(cur, dx, dy, c0)
+        if nxt:
+            self.select_id(nxt)
+            return
         best, best_score = None, math.inf
         for tid, it in items.items():
             if tid == cur:
@@ -401,6 +407,56 @@ class MindCanvas(QGraphicsView):
                 best, best_score = tid, score
         if best:
             self.select_id(best)
+
+    def _structural_neighbor(self, cur: str, dx: int, dy: int, c0) -> Optional[str]:
+        """Setas pela estrutura (1.4.2): irmão anterior/seguinte na direção da fila de irmãos,
+        primeiro filho para o lado em que o ramo cresce e pai para o lado de onde ele vem.
+        None = nada estrutural nessa direção (vale a proximidade na tela)."""
+        items = self.mscene.topic_items
+        t = self.doc.map.find(cur)
+        if t is None:
+            return None
+
+        def center(tid):
+            return items[tid].mapRectToScene(items[tid].box_rect()).center()
+
+        def points(tid) -> bool:
+            c = center(tid)
+            vx, vy = c.x() - c0.x(), c.y() - c0.y()
+            along = vx * dx + vy * dy
+            return along > 2 and along >= 0.6 * abs(vx * dy - vy * dx)
+
+        if t.parent is not None:
+            sibs = [s.id for s in t.parent.visible_children() if s.id in items]
+            if cur in sibs:
+                i = sibs.index(cur)
+                for j in (i - 1, i + 1):
+                    if 0 <= j < len(sibs) and points(sibs[j]):
+                        return sibs[j]
+        kids = [k.id for k in t.visible_children() if k.id in items]
+        for k in kids:                          # primeiro filho (na ordem) para esse lado
+            if points(k):
+                return k
+        if t.parent is not None and t.parent.id in items and points(t.parent.id):
+            return t.parent.id
+        # fim da fila: segue para o próximo "primo" (irmão do pai, do avô...) nessa direção,
+        # ex.: ↓ no último subtópico vai para o tópico seguinte do ramo de cima
+        a = t.parent
+        while a is not None and a.parent is not None:
+            sibs = [s.id for s in a.parent.visible_children() if s.id in items]
+            if a.id in sibs:
+                i = sibs.index(a.id)
+                ca = center(a.id)
+                for j in (i - 1, i + 1):
+                    if 0 <= j < len(sibs):
+                        c = center(sibs[j])
+                        vx, vy = c.x() - ca.x(), c.y() - ca.y()
+                        along = vx * dx + vy * dy
+                        ahead = (c.x() - c0.x()) * dx + (c.y() - c0.y()) * dy
+                        if along > 2 and along >= 0.6 * abs(vx * dy - vy * dx) and ahead > 2:
+                            return sibs[j]
+            a = a.parent
+        return None
 
     def move_sibling(self, delta: int) -> None:
         self.commit_edit()
@@ -454,10 +510,13 @@ class MindCanvas(QGraphicsView):
             self.doc.apply(N_("Expandir ramo"), lambda m: ops.expand_ancestors(m, tid), select=[tid])
         self.select_id(tid, center=True)
 
-    def _on_drop(self, ids: list, target: str) -> None:
+    def _on_drop(self, ids: list, intent: dict) -> None:
         def fn(m):
-            for tid in ids:
-                ops.move_topic(m, tid, target)
+            if intent["kind"] in ("before", "after"):
+                ops.insert_topics(m, ids, intent["target"], intent["kind"] == "after")
+            else:
+                for tid in ids:
+                    ops.move_topic(m, tid, intent["target"])
         try:
             self.doc.apply(N_("Mover tópico"), fn, select=ids)
         except ops.OpError as exc:
@@ -488,6 +547,10 @@ class MindCanvas(QGraphicsView):
         if self.mscene.selected_topic_ids() == [self.doc.map.root.id]:
             self.status_message.emit(tr("O tópico central não pode ser recortado."))
             return
+        root = self.doc.map.root.id
+        ids = self.mscene.selected_topic_ids()
+        if root in ids:         # recortar com o central selecionado: recorta os outros
+            self.select_ids([i for i in ids if i != root])
         if self.copy():
             self.delete_selected()
 
@@ -803,7 +866,7 @@ class MindCanvas(QGraphicsView):
             target = self.mscene.topic_at(self.mapToScene(e.position().toPoint()))
             src = self.relation_source
             self._end_relation_mode()
-            if target is not None and target.tid != src:
+            if target is not None and target.tid != src and self.doc.map.find(src) is not None:
                 self.doc.apply(N_("Adicionar relação"), lambda m: ops.add_relation(m, src, target.tid))
                 self.status_message.emit(tr("Relação criada. Dê duplo clique na linha para nomeá-la."))
             else:

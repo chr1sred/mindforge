@@ -72,7 +72,8 @@ def top_level_selection(m: MindMap, ids: Iterable[str]) -> list[Topic]:
 
 def delete_topics(m: MindMap, ids: Iterable[str]) -> Optional[str]:
     """Exclui tópicos (e seus ramos). Retorna o id sugerido para nova seleção."""
-    topics = [t for t in top_level_selection(m, ids) if t is not m.root]
+    # o central nunca é excluído: com ele na seleção (ex.: Selecionar tudo + Delete), saem os outros
+    topics = top_level_selection(m, [i for i in ids if i != m.root.id])
     if not topics:
         raise OpError(tr("O tópico central não pode ser excluído."))
     next_sel: Optional[str] = None
@@ -111,6 +112,32 @@ def move_topic(m: MindMap, tid: str, new_parent_id: str, index: Optional[int] = 
         t.detach()
     new_parent.collapsed = False
     new_parent.add_child(t, index)
+
+
+def insert_topics(m: MindMap, ids: list, anchor_id: str, after: bool) -> None:
+    """Arrastar e soltar entre irmãos (1.4.2): coloca os tópicos antes/depois de `anchor_id`,
+    no mesmo pai dele, mantendo a ordem relativa entre eles."""
+    anchor = _get(m, anchor_id)
+    parent = anchor.parent
+    if parent is None:
+        raise OpError(tr("O tópico central e os flutuantes não têm pai."))
+    order = {t.id: k for k, t in enumerate(m.all_topics())}
+    topics = sorted((_get(m, i) for i in ids), key=lambda t: order.get(t.id, 0))   # ordem do mapa
+    for t in topics:
+        if t is m.root:
+            raise OpError(tr("O tópico central não pode ser movido."))
+        if t is anchor or t.is_ancestor_of(parent) or t is parent:
+            raise OpError(tr("Não é possível mover um tópico para dentro dele mesmo."))
+    for t in topics:
+        if t.parent is None:
+            m.floating.remove(t)
+            t.pos = None
+        else:
+            t.detach()
+    idx = parent.children.index(anchor) + (1 if after else 0)
+    parent.collapsed = False
+    for k, t in enumerate(topics):
+        parent.add_child(t, idx + k)
 
 
 def reorder(m: MindMap, tid: str, delta: int) -> bool:
