@@ -170,6 +170,16 @@ def detach_to_floating(m: MindMap, tid: str, x: float, y: float) -> None:
 
 
 # --------------------------------------------------------------- conteúdo
+def count_topics(topics: list[Topic]) -> int:
+    """Quantidade de tópicos, contando todos os descendentes."""
+    n, stack = 0, list(topics)
+    while stack:
+        t = stack.pop()
+        n += 1
+        stack += t.children
+    return n
+
+
 def set_text(m: MindMap, tid: str, text: str) -> None:
     _get(m, tid).text = text
 
@@ -462,7 +472,8 @@ def duplicate(m: MindMap, ids: Iterable[str]) -> list[str]:
 
 
 # ------------------------------------------------------- texto em tópicos
-_BULLET = re.compile(r"^(\s*)(?:[-*+•▪◦]|\d+[.)])?\s*(.*)$")
+# só marcadores de Markdown/listas de texto; símbolos (• ◘ ♦ ...) fazem parte do texto (1.4.3)
+_BULLET = re.compile(r"^(\s*)(?:[-*+](?=\s)|\d+[.)](?=\s))?\s*(.*)$")
 
 
 def parse_outline(text: str) -> list[Topic]:
@@ -470,7 +481,8 @@ def parse_outline(text: str) -> list[Topic]:
 
     Útil para colar listas de notas, Markdown ou e-mails direto no mapa.
     """
-    lines = [ln.rstrip() for ln in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    from mindforge.textclean import prepare_outline
+    lines = [ln.rstrip() for ln in prepare_outline(text).split("\n")]
     lines = [ln for ln in lines if ln.strip()]
     if not lines:
         return []

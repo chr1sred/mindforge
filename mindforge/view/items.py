@@ -11,9 +11,11 @@ from typing import TYPE_CHECKING, Optional
 from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer
 from PySide6.QtGui import (
     QBrush, QColor, QFont, QFontMetricsF, QKeyEvent, QPainter, QPainterPath,
-    QPainterPathStroker, QPen, QTextOption,
+    QGuiApplication, QKeySequence, QPainterPathStroker, QPen, QTextCursor, QTextOption,
 )
-from PySide6.QtWidgets import QGraphicsItem, QGraphicsPathItem, QGraphicsTextItem, QStyleOptionGraphicsItem
+from PySide6.QtWidgets import QGraphicsItem, QGraphicsPathItem, QGraphicsTextItem, QMenu, QStyleOptionGraphicsItem
+
+from mindforge.textclean import clean_paste
 
 from mindforge.view.painting import (
     TopicVisual, badge_center, badge_radius, default_family, paint_badge, paint_control, paint_topic,
@@ -871,9 +873,100 @@ class EditorItem(QGraphicsTextItem):
         opt.setWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
         self.document().setDefaultTextOption(opt)
 
+    # ------------------------------------------- colar sem formatação (1.4.3)
+    @staticmethod
+    def is_paste_keeping_lines(e: QKeyEvent) -> bool:
+        mods = e.modifiers() & ~Qt.KeyboardModifier.KeypadModifier
+        return e.key() == Qt.Key.Key_V and mods == (Qt.KeyboardModifier.ControlModifier
+                                                    | Qt.KeyboardModifier.ShiftModifier)
+
+    def paste_plain(self, keep_lines: bool = False, text: Optional[str] = None) -> bool:
+        """Cola sempre como texto puro, limpo, com o estilo do tópico.
+
+        Padrão: numa linha só.  ``keep_lines`` (⌘⇧V / Ctrl+Shift+V): mantém as quebras."""
+        if text is None:
+            md = QGuiApplication.clipboard().mimeData()
+            text = md.text() if md is not None and md.hasText() else ""
+        clean = clean_paste(text, keep_lines)
+        if not clean:
+            return False
+        cur = self.textCursor()
+        cur.setCharFormat(self._plain_format())
+        cur.insertText(clean)
+        self.setTextCursor(cur)
+        return True
+
+    def _plain_format(self):
+        from PySide6.QtGui import QTextCharFormat
+        f = QTextCharFormat()
+        f.setFont(self.font())
+        f.setForeground(QBrush(self.defaultTextColor()))
+        return f
+
+    def _clipboard_has_text(self) -> bool:
+        md = QGuiApplication.clipboard().mimeData()
+        return bool(md is not None and md.hasText() and clean_paste(md.text()))
+
+    def _copy_selection(self) -> None:
+        cur = self.textCursor()
+        if cur.hasSelection():
+            QGuiApplication.clipboard().setText(cur.selectedText().replace("\u2029", "\n"))
+
+    def _cut_selection(self) -> None:
+        cur = self.textCursor()
+        if cur.hasSelection():
+            self._copy_selection()
+            cur.removeSelectedText()
+            self.setTextCursor(cur)
+
+    def _select_all(self) -> None:
+        cur = self.textCursor()
+        cur.select(QTextCursor.SelectionType.Document)
+        self.setTextCursor(cur)
+
+    def contextMenuEvent(self, e) -> None:
+        """Menu próprio: o do Qt colaria com a formatação de origem."""
+        menu = self.build_context_menu()
+        self.exec_menu(menu, e.screenPos())
+        menu.deleteLater()
+        e.accept()
+
+    @staticmethod
+    def exec_menu(menu, pos) -> None:
+        menu.exec(pos)
+
+    def build_context_menu(self) -> QMenu:
+        doc = self.document()
+        has_sel = self.textCursor().hasSelection()
+        can_paste = self._clipboard_has_text()
+        menu = QMenu(self.canvas)
+        entries = [
+            (tr("Desfazer"), doc.undo, doc.isUndoAvailable()),
+            (tr("Refazer"), doc.redo, doc.isRedoAvailable()),
+            None,
+            (tr("Recortar"), self._cut_selection, has_sel),
+            (tr("Copiar"), self._copy_selection, has_sel),
+            (tr("Colar"), lambda: self.paste_plain(False), can_paste),
+            (tr("Colar mantendo as quebras de linha"), lambda: self.paste_plain(True), can_paste),
+            None,
+            (tr("Selecionar tudo"), self._select_all, True),
+        ]
+        for entry in entries:
+            if entry is None:
+                menu.addSeparator()
+                continue
+            text, slot, enabled = entry
+            a = menu.addAction(text, slot)
+            a.setEnabled(enabled)
+        return menu
+
     def keyPressEvent(self, e: QKeyEvent) -> None:
         key = e.key()
         mods = e.modifiers()
+        if e.matches(QKeySequence.StandardKey.Paste) or self.is_paste_keeping_lines(e):
+            self.paste_plain(keep_lines=self.is_paste_keeping_lines(e))
+            e.accept()
+            return
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             if mods & Qt.KeyboardModifier.ShiftModifier:
                 self.textCursor().insertText("\n")
@@ -903,7 +996,29 @@ class EditorItem(QGraphicsTextItem):
         if e.reason() not in (Qt.FocusReason.ActiveWindowFocusReason, Qt.FocusReason.PopupFocusReason):
             self.canvas.schedule_commit_on_blur(self)
 
+    def dropEvent(self, e) -> None:
+        """Texto arrastado de outro app também entra sem formatação."""
+        md = e.mimeData()
+        if e.source() is None and md is not None and md.hasText():
+            pos = self.document().documentLayout().hitTest(e.pos(), Qt.HitTestAccuracy.FuzzyHit)
+            cur = self.textCursor()
+            cur.clearSelection()
+            if pos >= 0:
+                cur.setPosition(pos)
+            self.setTextCursor(cur)
+            if self.paste_plain(False, md.text()):
+                e.setDropAction(Qt.DropAction.CopyAction)
+                e.accept()
+            else:
+                e.ignore()
+            return
+        super().dropEvent(e)
+
     def sceneEvent(self, e) -> bool:
+        if e.type() == QEvent.Type.ShortcutOverride and (
+                e.matches(QKeySequence.StandardKey.Paste) or self.is_paste_keeping_lines(e)):
+            e.accept()          # o atalho é do editor, não do menu Editar → Colar
+            return True
         if e.type() == QEvent.Type.KeyPress and e.key() == Qt.Key.Key_Tab:
             self.keyPressEvent(e)
             return True

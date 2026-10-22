@@ -4,8 +4,7 @@
 
 Editor de mapas mentais em Python + PySide6 (Qt), inspirado no XMind.
 
-<img width="1672" height="1143" alt="screenshot-01_PT" src="https://github.com/user-attachments/assets/9e8a878d-9f25-4fcb-ad8b-cea4b2e407ce" />
-
+<img width="1657" height="1116" alt="screenshot-01" src="https://github.com/user-attachments/assets/26745df8-ea3a-4bac-9117-bfc8514023df" />
 
 - Roda no **macOS, Windows e Linux**.
 - Funciona com **7 esqueletos**, **12 temas rápidos**, **21 temas de cores em 6 variações** (mais as suas paletas) e **7 estilos de ramo**.
@@ -71,6 +70,7 @@ No macOS, `Ctrl` = `⌘`. A lista completa também está em **Ajuda → Atalhos 
 | Inserir tópico pai | `Ctrl+Enter` |
 | Editar texto | `F2`, `Espaço` ou comece a digitar |
 | Quebra de linha (editando) | `Shift+Enter` |
+| Colar mantendo as quebras de linha (editando) | `Ctrl+Shift+V` |
 | Confirmar / cancelar edição | `Enter` / `Esc` |
 | Excluir tópico | `Delete` / `Backspace` |
 | Navegar | Setas |
@@ -89,7 +89,8 @@ No macOS, `Ctrl` = `⌘`. A lista completa também está em **Ajuda → Atalhos 
 
 **Dicas:**
 
-- **Colar lista indentada.** Colar (`Ctrl+V`) um texto indentado, como uma lista do Notes, de um e-mail ou em Markdown, cria a hierarquia de tópicos automaticamente.
+- **Colar lista indentada.** Colar (`Ctrl+V`) um texto indentado, como uma lista do Notes, de um e-mail ou em Markdown, cria a hierarquia de tópicos automaticamente. Acima de 50 tópicos, o app pede confirmação.
+- **Colar sempre sem formatação (1.4.3).** Durante a edição, o texto colado (atalho, menu, botão direito ou arrastado de outro app) entra puro, com o estilo do tópico, numa linha só e sem espaços especiais, caracteres invisíveis ou linhas vazias. `Ctrl+Shift+V` mantém as quebras de linha. Símbolos como • ◘ ♦ ☺ são mantidos.
 - **Arrastar para reorganizar.** Ao arrastar, o lugar onde você solta decide o que acontece. O tópico arrastado fica translúcido para você ver o destino:
 
   | Onde soltar | O que acontece |
@@ -247,7 +248,7 @@ mindforge/
 QT_QPA_PLATFORM=offscreen python -m pytest
 ```
 
-Os 252 testes cobrem:
+Os 278 testes cobrem:
 
 - **Modelo:** operações e serialização.
 - **Desfazer/refazer:** todas as operações e o limite de 100 níveis.
@@ -257,6 +258,7 @@ Os 252 testes cobrem:
 - **Atalhos:** os de teclado, incluindo os conflitos durante a edição.
 - **Recolher e botão direito (1.3):** contagem de escondidos, círculo sem colidir com tópicos em todos os esqueletos, `⊖` fora da exportação, clique em toda a caixa do tópico em todos os esqueletos e zooms, hover próprio do controle, duplo clique no controle, clique simples × arrasto.
 - **Idiomas (1.3):** toda chave com tradução, marcadores e atalhos preservados, nenhuma palavra em português na interface inglesa, troca de idioma preservando documento, seleção e desfazer.
+- **1.4.3:** colar sem formatação (atalho, menu Editar, botão direito do editor e arrastar), limpeza de espaços especiais, invisíveis e todos os tipos de quebra de linha, símbolos preservados, `Ctrl+Shift+V` mantendo quebras, limpeza leve ao confirmar e confirmação ao colar mais de 50 tópicos.
 - **1.4.2:** reordenar arrastando (antes/depois/filho) em todos os esqueletos, linha de inserção, vários tópicos juntos, flutuante solto entre irmãos, redimensionar só com o tópico selecionado, setas pela estrutura, Selecionar tudo + Delete, e travamentos achados pelo teste de fluidez (zoom + apagar relação, relação com origem apagada, arrastar com o central na seleção).
 - **1.4.1:** ícone dos arquivos `.mfmap` em todos os tamanhos e formatos, Info.plist do Mac, registro no Windows e no Linux (uma vez por versão, sem nunca impedir o app de abrir), relação continua visível ao mover tópicos (inclusive flutuantes), copiar/colar/repor estilo e pincel (uma vez, travado e entre janelas), redimensionar pela borda (largura mínima sem cortar palavras, duplo clique volta ao automático), controles da relação (curvatura, encaixe, inverter, pontas, endireitar), forma da relação gravada no arquivo e compatível com arquivos antigos.
 - **1.4:** trocar o tema recolore todos os níveis em todos os esqueletos (mesmo com roda/cor estática escolhidas), espinha de peixe preenchida com variações funcionando, cores manuais (contagem e Repor cores), 12 temas rápidos, negrito/itálico/tachado na seleção e durante a edição, rótulos de relação sem cobrir tópicos, desempenho com 1.000 tópicos e um teste de "fluidez" com centenas de ações aleatórias de teclado, mouse, temas e idioma sem nenhum erro.

@@ -609,4 +609,9 @@ EN: dict[str, str] = {
     "Sem seta": "No Arrow",
     "Endireitar curva": "Straighten Curve",
     "Copiar / Colar / Repor estilo": "Copy / Paste / Reset style",
+    # 1.4.3 — colar sem formatação
+    "Colar mantendo as quebras de linha": "Paste Keeping Line Breaks",
+    "Colar mantendo as quebras de linha (na edição)": "Paste keeping line breaks (while editing)",
+    "Selecionar tudo": "Select All",
+    "Criar {n} tópicos a partir do texto colado?": "Create {n} topics from the pasted text?",
 }

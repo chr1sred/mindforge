@@ -276,6 +276,7 @@ SHORTCUTS = [
     (N_("Expandir o ramo inteiro"), N_("Alt+clique no número")),
     (N_("Desfazer / Refazer"), N_("{mod}+Z / {mod}+{shift}+Z ou {mod}+Y")),
     (N_("Copiar / Recortar / Colar ramo"), "{mod}+C / {mod}+X / {mod}+V"),
+    (N_("Colar mantendo as quebras de linha (na edição)"), "{mod}+{shift}+V"),
     (N_("Duplicar tópico"), "{mod}+D"),
     (N_("Negrito / Itálico / Tachado"), "{mod}+B / {mod}+I / {mod}+{shift}+X"),
     (N_("Copiar / Colar / Repor estilo"), "{mod}+{alt}+C / {mod}+{alt}+V / {mod}+{alt}+R"),

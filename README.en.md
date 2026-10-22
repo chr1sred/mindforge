@@ -4,8 +4,7 @@
 
 A mind map editor in Python + PySide6 (Qt), inspired by XMind.
 
-<img width="1672" height="1143" alt="screenshot-01_EN" src="https://github.com/user-attachments/assets/9b2849c1-9754-41ec-833d-44153ccc3d8f" />
-
+<img width="1588" height="1058" alt="screenshot-01_en" src="https://github.com/user-attachments/assets/3613f29f-2d08-452a-9438-248f9151a56b" />
 
 - Runs on **macOS, Windows and Linux**.
 - **7 structures**, **12 quick themes**, **21 color themes in 6 variations** (plus your own palettes) and **7 branch styles**.
@@ -71,6 +70,7 @@ On macOS, `Ctrl` = `⌘`. The full list is also under **Help → Keyboard shortc
 | Insert parent topic | `Ctrl+Enter` |
 | Edit text | `F2`, `Space` or just start typing |
 | Line break (while editing) | `Shift+Enter` |
+| Paste keeping line breaks (while editing) | `Ctrl+Shift+V` |
 | Confirm / cancel editing | `Enter` / `Esc` |
 | Delete topic | `Delete` / `Backspace` |
 | Navigate | Arrow keys |
@@ -89,7 +89,8 @@ On macOS, `Ctrl` = `⌘`. The full list is also under **Help → Keyboard shortc
 
 **Tips:**
 
-- **Paste an indented list.** Pasting (`Ctrl+V`) indented text — a list from Notes, an email or Markdown — builds the topic hierarchy automatically.
+- **Paste an indented list.** Pasting (`Ctrl+V`) indented text — a list from Notes, an email or Markdown — builds the topic hierarchy automatically. Above 50 topics the app asks for confirmation.
+- **Always paste without formatting (1.4.3).** While editing, pasted text (shortcut, menu, right-click or dragged from another app) comes in as plain text with the topic's style, on a single line, without special spaces, invisible characters or blank lines. `Ctrl+Shift+V` keeps line breaks. Symbols such as • ◘ ♦ ☺ are kept.
 - **Drag to reorganize.** Where you drop decides what happens; the dragged topic turns translucent so you can see the destination:
 
   | Where you drop | What happens |
@@ -247,7 +248,7 @@ mindforge/
 QT_QPA_PLATFORM=offscreen python -m pytest
 ```
 
-The 252 tests cover:
+The 278 tests cover:
 
 - **Model:** operations and serialization.
 - **Undo/redo:** every operation and the 100-level limit.
@@ -257,6 +258,7 @@ The 252 tests cover:
 - **Shortcuts:** keyboard shortcuts, including conflicts while editing.
 - **Collapse and right button (1.3):** hidden count, circle never colliding with topics in every structure, `⊖` left out of exports, clicks anywhere in a topic’s box in every structure and zoom, the control’s own hover, double-click on the control, simple click vs. drag.
 - **Languages (1.3):** every key translated, placeholders and shortcuts preserved, no Portuguese words in the English interface, language switch keeping document, selection and undo.
+- **1.4.3:** paste without formatting (shortcut, Edit menu, editor right-click and drag), cleanup of special spaces, invisible characters and every kind of line break, symbols preserved, `Ctrl+Shift+V` keeping line breaks, light cleanup on commit and confirmation when pasting more than 50 topics.
 - **1.4.2:** reorder by dragging (before/after/child) in every structure, insertion line, several topics at once, floating topic dropped between siblings, resizing only on the selected topic, structural arrow keys, Select All + Delete, and crashes found by the fluidity test (zoom + delete a relationship, relationship with a deleted source, dragging with the central topic selected).
 - **1.4.1:** `.mfmap` file icon in every size and format, Mac Info.plist, Windows and Linux registration (once per version, never blocking the app from opening), relationships stay visible when moving topics (including floating ones), copy/paste/reset style and the brush (once, locked and across windows), edge resizing (minimum width never cuts words, double-click goes back to automatic), relationship handles (curvature, attachment, reverse, ends, straighten), relationship shape saved in the file and compatible with older files.
 - **1.4:** changing the theme recolors every level in every structure (even with a wheel/static color chosen), filled fishbone with working variations, manual colors (count and Reset colors), 12 quick themes, bold/italic/strikethrough on the selection and while editing, relationship labels never covering topics, performance with 1,000 topics and a "fluidity" test with hundreds of random keyboard, mouse, theme and language actions without a single error.

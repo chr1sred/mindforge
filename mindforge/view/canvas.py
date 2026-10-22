@@ -25,6 +25,7 @@ from mindforge.document import Document
 from mindforge.i18n import N_, ntr, tr
 from mindforge.model import ops
 from mindforge.model.topic import Topic
+from mindforge.textclean import clean_committed
 from mindforge.themes import style_snapshot
 from mindforge.view.items import EditorItem, RelationItem
 from mindforge.view.painting import text_rect
@@ -354,7 +355,7 @@ class MindCanvas(QGraphicsView):
         ed = self._discard_editor()
         if ed is None:
             return
-        text = ed.toPlainText().strip()
+        text = clean_committed(ed.toPlainText())
         if not text:
             text = ed.original
         merge = self._pending_merge[1] if self._pending_merge and self._pending_merge[0] == ed.tid else None
@@ -554,8 +555,12 @@ class MindCanvas(QGraphicsView):
         if self.copy():
             self.delete_selected()
 
+    PASTE_CONFIRM_LIMIT = 50
+
     def paste(self) -> None:
-        self.commit_edit()
+        if self.editor is not None:     # durante a edição: cola dentro do texto, sem formatação
+            self.editor.paste_plain()
+            return
         md = QGuiApplication.clipboard().mimeData()
         topics: list[Topic] = []
         if md is not None and md.hasFormat(MIME_TOPICS):
@@ -566,6 +571,9 @@ class MindCanvas(QGraphicsView):
                 topics = []
         if not topics and md is not None and md.hasText():
             topics = ops.parse_outline(md.text())
+            n = ops.count_topics(topics)
+            if n > self.PASTE_CONFIRM_LIMIT and not self._confirm_many(n):
+                return
         if not topics:
             self.status_message.emit(tr("Nada para colar."))
             return
@@ -575,6 +583,15 @@ class MindCanvas(QGraphicsView):
             c = self.mapToScene(self.viewport().rect().center())
             at = (c.x(), c.y())
         self.doc.apply(N_("Colar"), lambda m: ops.paste_topics(m, parent, topics, at), select=lambda r: r)
+
+    def _confirm_many(self, n: int) -> bool:
+        from PySide6.QtWidgets import QMessageBox
+        r = QMessageBox.question(
+            self.window(), tr("Colar"),
+            tr("Criar {n} tópicos a partir do texto colado?", n=n),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Yes)
+        return r == QMessageBox.StandardButton.Yes
 
     def duplicate(self) -> None:
         self.commit_edit()
